@@ -1,0 +1,965 @@
+Orbital
+06.03.2025 | By Dave White, Dan Robinson, Ciamac Moallemi
+
+OUTLINE
+1. Introduction
+2. Overview
+3. Intuition
+4. Mechanism
+1. The Sphere AMM
+1. Formula
+2. Token Prices on the Sphere
+3. The Equal Price Point
+4. Polar Reserve Decomposition
+5. Tick Definition
+1. Notes
+2. Geometric Intuition
+3. Tick Boundary Geometry
+6. Tick Size Bounds
+1. The Minimal Tick
+2. The Maximal Tick
+7. Tick Reserve Bounds and Virtual Reserves
+1. Minimum Reserves
+2. Virtual Reserves
+3. Maximum Token Reserves
+8. Interpreting k
+9. Capital Efficiency
+10. Tick Consolidation
+1. Overview
+2. Consolidation Math
+1. Case 1: Both Reserves Interior
+2. Case 2: Both Reserves on Boundary
+11. Global Trade Invariant
+1. Setup
+
+2. Finding alpha_bound and alpha_int
+3. Showing w_int and w_bound are parallel
+4. Finding ||w_int||
+5. The Full Invariant
+6. Computation
+12. Trading Within Tick Boundaries
+1. Logic
+13. Crossing Ticks
+1. Intuition
+2. Normalization
+3. Trade Segmentation Process
+5. Conclusion
+
+0:00 / 0:14
+
+Animation by Dave Whyte
+
+Introduction
+The future holds a million stablecoins. Today's infrastructure isn't ready.
+This paper introduces Orbital, an automated market maker for pools of 2, 3, or 10,000 stablecoins.
+
+Orbital unlocks capital efficiency by bringing concentrated liquidity to higher dimensions.
+
+Overview
+
+0:00 / 0:08
+
+This is a graph of the reserves of an automated market maker (AMM) between USDC and USDT.
+When traders add USDT, they get USDC in return. In the middle, where reserves are equal, the coins
+have the same price. At the edges, one is worthless compared to the other.
+
+0:00 / 0:09
+
+Uniswap V3 pioneered the concept of concentrated liquidity. It creates and consolidates mini-AMMs,
+called ticks, that support more trading with less capital by restricting themselves to only a specified
+price range. Uniswap v3 allows liquidity providers to create positions between any two tick
+boundaries, and efficiently aggregates their liquidity so that traders can interact with it as if it were a
+single pool. However, it only supports pools between two assets.
+Curve created an invariant-based AMM that allows trading of N stablecoins in a single pool. It focuses
+liquidity around the price of 1. However, Curve uses a uniform strategy for each pool, meaning all
+liquidity providers in the same pool have the same liquidity profile.
+
+0:00 / 0:14
+
+Orbital extends customizable concentrated liquidity to pools of three or more stables by drawing tick
+boundaries as orbits around the $1 equal price point.
+Unlike in 2D concentrated liquidity, even if one stablecoin depegs to 0, an Orbital tick can still trade
+
+the others at fair prices.
+
+0:00 / 0:14
+
+Smaller ticks closer to the equal $1 price point don't need to hold capital in reserve to give out in case
+one of the coins depegs.
+This lets LPs focus their resources where normal trading actually happens, unlocking significant
+capital efficiency gains.
+
+0:00 / 0:14
+
+The full Orbital AMM combines ticks of different sizes so LPs can customize their exposures.
+Some might choose to focus narrowly around the $1 point for maximum efficiency, while others might
+provide wider coverage to earn fees during times of volatility.
+Under the hood, Orbital ticks are n-dimensional spherical caps.
+Thanks to symmetry, we can orbit some around the others to obtain a single toroid (donut-like)
+shape.
+This lets us compute trades efficiently onchain regardless of the number of different coins in the pool.
+
+Intuition
+The math below gets pretty dense, but it's just trying to formalize a relatively simple visual intuition.
+In the 3D case, depicted above, the base Orbital AMM is a sphere. We only show 1/8th of the sphere in
+the animation because it's the only relevant part assuming prices stay non-negative.
+The Orbital tick in the diagram refers to the part of the sphere inside the red circle. The red circle itself
+forms the boundary of the tick. Note that, unlike in Uniswap V3, Orbital ticks actually overlap, so that
+larger ones fully contain smaller ones.
+We can see from the animation that a Orbital tick can be in one of two states. If prices for all the
+stablecoins are sufficiently close to the equal $1 price point, then the reserves will be somewhere on the
+interior tick. But once prices have diverged enough, the tick's reserves will become pinned to its
+boundary.
+Now, imagine we have hundreds or thousands of ticks. Each one of them will either be an "interior
+tick" or a "boundary tick."
+Locally, all interior ticks behave like spheres. Since they are geometrically similar, we can consolidate
+them all and treat them like a single sphere.
+Similarly, all boundary ticks behave locally like circles (in general, in n dimensions, they behave like
+
+n − 1-dimensional spheres. Since they are geometrically similar, we can again consolidate them all
+
+and treat them like a single circle.
+Logically speaking, we are now dealing with one spherical AMM and one circular AMM. By rotating
+the sphere around the circle, we obtain a single torus, or donut shape.
+The equation of this torus is simple enough that we can compute trades across its surface efficiently
+onchain. To compute larger trades, we update the equation every time a tick changes from boundary
+to interior or vice versa.
+Luckily, all of this stays true in high-dimensional space, and the rest of the paper goes into the details
+of how that works.
+
+Mechanism
+The Sphere AMM
+Formula
+Orbital is built on top of the Sphere AMM
+
+∣∣r − x∣∣2 = ∑ni=1 (r − xi )2 = r2
+where xi is AMM's reserve of asset i.
+To see that the minimum reserve of any asset is 0, note that the sphere is centered at r =
+
+(r, r, … , r), and the farthest a point on the sphere can be from the center in any dimension is the
+radius r .
+As long as asset prices are positive, no-arbitrage implies we should never have reserves xi > r for
+any i, since if xi = r + d for some d > 0, then (r − xi )2 = d2 = (r − (r − d))2 = (r −
+
+(xi − 2d))2
+
+and some trader could remove 2d of asset i for free without affecting the AMM's constant function
+constraint, and by assumption it would have positive value. Therefore we won't add an explicit
+contraint for xi ≤ r to the AMM, but can assume that xi ≤ r for all i in normal circumstances.
+
+Token Prices on the Sphere
+Let's say a trader wants to give the AMM some token Xi and take out some token Xj while staying on
+the surface F (x) = ∣∣r − x∣∣2 = r 2
+In this case, we must have
+
+δF
+δF
+δxi δxi + δxj δxj = 0
+
+so, abusing notation a bit, we can express the instantaneous price of one unit of xj as
+r−xj
+δxi
+δF δF
+= − δx
+/
+=
+δxj
+δx
+r−xi
+j
+i
+
+Intuitively we can verify that if the AMM has high reserves of Xj and low reserves of Xi , this fraction
+will be small, meaning you don't get much Xi per unit of Xj , and vice versa.
+
+The Equal Price Point
+The most important point on the surface of our AMM is the point where all reserves are equal, so that,
+by symmetry, all prices are equal.
+This should be the the normal state for stablecoins, because under normal conditions they should all
+worth the value they are pegged to, e.g. $1.
+Let's denote this point
+
+q = (q, q, … , q)
+By our sphere constraint, we have
+n
+
+r2 = ∥r − q ∥2 = ∑i=1 (r − q)2 = n(r − q)2
+So then
+2
+
+(r − q)2 = rn ⇒ r − q =
+
+r
+n
+
+so
+
+q = r (1 −
+
+1
+)
+n
+
+and we have
+
+q = r (1 −
+
+1
+) (1, 1, … , 1)
+n
+
+Since they're all multiples of (1, 1, … , 1), there's a line from the origin, through the equal price
+point, and to the center of the AMM. We can represent its direction with the unit vector
+
+v=
+
+1
+(1, 1, … , 1)
+n
+
+In terms of trading, we can think of v as a portfolio of 1n of each of the coins in the AMM.
+
+Polar Reserve Decomposition
+This section introduces a concept and notation we'll be using to work with ticks through the rest of the
+paper.
+Given any valid reserve state x on the surface of the AMM, linear algebra tells us we can decompose it
+into a vector parallel to v and a vector w orthogonal to v , the vector from the origin to the equal price
+point.
+In other words, for any reserve state x, we have
+
+x = αv + w
+
+where
+
+v⊥w
+
+Note that because v is a unit vector, we can calculate α directly as x ⋅ v , which mechanically equals
+1
+∑ni=1 xi — 1n times the sum of all reserves in x.
+n
+
+Viewed through the lens of this decomposition, our AMM constraint becomes
+
+r2 = ∥x − r∥2 = ∥(αv + w) − r ⋅ 1∥2 = ∥(αv + w) − r n ⋅ v ∥2 = ∥(α − r n)v +
+w ∥2
+Since v ⊥ w by definition, we can use the Pythagorean theorem to simplify this to
+
+r2 = (α − r n)2 + ∥w∥2
+or, rearranging,
+
+∥w∥2 = r2 − (α − r n)2
+From this, we can see that if we hold the component of reserves parallel to v constant, our AMM acts
+as a lower-dimensional spherical AMM in the subspace orthogonal to v with radius
+
+s=
+
+r2 − (α − r n)2
+
+Tick Definition
+Notes
+In the interest of simplicity, for the rest of the paper we will act as if each tick has only one liquidity
+provider. Of course, in practice, we would allow multiple LPs to pool their liquidity into the same tick,
+just like in Uniswap V3.
+
+As a reminder, ticks in Orbital are nested. Each is centered at the equal price point, and larger ticks
+fully overlap with smaller ticks. This is in contrast to Uniswap V3, where ticks are fully disjoint.
+
+Geometric Intuition
+We can think of a tick geometrically as all the points on the sphere's surface that are within some fixed
+geodesic distance from the equal-price point.
+In the 3D case visualized above, it's possible to intuit that we can construct the boundary of such a tick
+by slicing the sphere with a plane orthogonal to the vector v from the equal price point to the sphere's
+center.
+We formalize this construction for higher dimensions below.
+
+Tick Boundary Geometry
+Any plane normal to v = ( 1n , 1n , … , 1n ) ∈ Rn has the form
+
+x⋅v =k
+This is another way of saying that the plane consists precisely of all points whose projection on v is k - i.e. the points of the form k v + w for some w ⊥ v , which you get by starting from kv and adding
+some vector orthogonal to v .
+From the polar reserve decomposition section above, we can see that when reserves lie on this
+boundary, since the component of reserves parallel to v is constant at kv , the tick AMM functions as a
+spherical AMM in the n − 1-dimensional subspace orthogonal to v with radius s =
+
+r2 − (k − r n)2 and center (k − r n)v .
+By symmetry, every point on this boundary will have an equal geodesic distance from the equal price
+point.
+
+Tick Size Bounds
+This section is relatively technical and defines the sizes of the smallest and largest ticks that make
+sense.
+
+The Minimal Tick
+The minimal tick boundary would be the equal price point itself, which we derived above as the point
+
+q where
+xi = r (1 −
+
+1
+)
+n
+
+for all i.
+In that case x ⋅ 1 = r(n −
+
+n), and since v =
+
+1
+1, we can define this tick using the plane
+n
+
+constant
+
+kmin = x ⋅ v = x⋅n1 = r( n − 1)
+The Maximal Tick
+The maximal tick's boundary is defined by the plane that lets us achieve the highest possible value of
+
+x ⋅ v that doesn't require any reserve xi to go above r. This happens when one reserve xj reaches its
+minimum value of 0 while all other reserves are at the maximum, r .
+For example, consider x1 = 0 and x2 = x3 = ⋯ = xn = r .
+It's still on the sphere because
+n
+
+n
+
+∑i=1 (r − xi )2 = r2 + ∑i=2 (r − r)2 = r2
+and we have
+
+kmax = x ⋅ v =
+
+0+(n−1)r
+= r n−1
+n
+n
+
+To see that this is indeed the maximal tick boundary, note that the reserves of all tokens but X1 are
+already at their maximum of r assuming positive prices. So, the only way we might be able to increase
+
+x ⋅ v further would be to increase the reserves of X1 while decreasing the other reserves by a lesser
+amount so that we don't violate the AMM constant.
+But note that the gradient of ∥r − x∥2 is
+
+2(r − x) = (r, 0, … , 0)
+at this point. So if the AMM reduces its x2 reserves infinitesimally, because of the 0 gradient we won't
+decrease the value of the AMM constant ∥x − r∥2 at all. That means so we can't increase x1 to
+compensate, and this indeed is the maximum tick boundary.
+
+Tick Reserve Bounds and Virtual Reserves
+
+This section explores how tick boundaries affect the minimum and maximum token reserves a tick
+can hold, and the implications that has for capital efficiency.
+
+Minimum Reserves
+Consider an Orbital tick with a plane constraint of
+
+x⋅v =k
+Let's derive the minimum possible reserves of any one of the coins, which we'll denote as Xmin . By
+symmetry, the reserves of all the other Xother must be equal to one another at that point.
+Our sphere constraint then becomes
+
+(r − xmin )2 + (n − 1)(r − xother )2 = r2
+and our plane invariant becomes
+1
+((n − 1)xother + xmin ) = k
+n
+
+so that
+
+xother =
+
+nk−xmin
+n−1
+
+Solving the resulting quadratic equation for xmin we get
+
+xmin =
+
+k n−
+
+k 2 n−n((n−1)r−k n)
+n
+
+2
+
+In terms of trading, this will usually represent the situation where all coins but one depeg to a low
+value, causing traders to remove as much of that still-stable coin as they can from the AMM.
+
+Virtual Reserves
+No matter what traders do, they cannot force the reserves of any token Xi to fall below xmin .
+This means the liquidity provider creating the tick can act as if they have "virtual reserves" of xmin of
+each of the stablecoins the tick trades and don't actually need to provide those xmin tokens when
+creating the tick. As in Uniswap V3, this is what allows for the capital efficiency we will discuss below.
+
+Maximum Token Reserves
+We can repeat the above derivation but flip the sign of the square root to find the maximum quantity of
+
+any given coin in the tick assuming both constraints are binding.
+Since, if prices are positive, no coin balance will go above r , we can then define
+
+xmax = min (r,
+
+k n+
+
+2
+
+k 2 n−n((n−1)r−k n)
+)
+n
+
+and
+
+xother =
+
+nk−xmax
+n−1
+
+In terms of trading, this will normally represent the situation where one single coin loses its peg and
+falls in value, while the other coins remain stable, causing traders to give the AMM as much of that one
+coin as they can. We call this a single-depeg event.
+
+Interpreting k
+If we assume that the most common way things will "go wrong" is a single depeg event of the type
+described in the section immediately above, then for small enough k we are concentrating liquidity
+where no coin has yet depegged down to a certain threshold -- for example, the area where no coin has
+depegged to below 99 cents.
+Assuming only one coin depegs and the rest stay constant, and that k is small enough that the plane
+constaint is binding, the depegged coin will have reserves of
+
+xdepeg =
+
+k n+
+
+k 2 n−n((n−1)r−k n)
+n
+
+2
+
+and
+
+xother =
+
+k n−xdepeg
+n−1
+
+Recall from the section on pricing that the instantaneous price of token Xj with respect to token Xi is
+r−xj
+δxi
+δF
+δF
+δxj = − δxj / δxi = r−xi
+
+In that case, the tick boundary corresponds to the single token depegging to
+r−x
+
+pdepeg = r−xdepeg
+other
+We can then invert this to obtain, for a given pdepeg , the k such that the boundary kicks in exactly at
+that depeg price:
+
+kdepeg (pdepeg ) = r n −
+
+r(pdepeg +n−1)
+n(p2depeg +n−1)
+
+Note that for large-enough k , such as kmax , the tick will remain fully in-range as multiple coins depeg
+all the way to 0, so this interpretation won't be relevant there and we are better of thinking about
+metrics like maximum portfolio loss assuming all coins but one depeg.
+
+Capital Efficiency
+As we derived above, given a plane constant k , the LP of a given tick gets to take advantage of virtual
+reserves
+
+xmin (k) =
+
+k n−
+
+k 2 n−n((n−1)r−k n)
+n
+
+2
+
+for each of the n assets. If we assume they create the AMM when reserves are at the equal price point q
+, the reserves they would need to provide for each coin in the spherical AMM would be
+
+xbase = r (1 −
+
+1
+n)
+
+So, assuming prices never diverge enough to push reserves past the boundary of the tick, there is a
+capital efficiency gain of
+xbase
+xbase −xmin (k)
+
+Using the depeg price formula from the prior section, we can compute how much capital efficiency you
+get by picking a boundary corresponding to a max depeg price of p:
+xbase
+cefficiency (p) = xbase −xmin
+(kdepeg (p))
+
+log Capital Efficiency Ratio vs. Depeg Price for n=5
+
+For example, in the 5-asset case, a depeg limit of $0.90 corresponds to around a 15x capital efficiency
+increase, while a limit of $0.99 corresponds to around a 150x capital efficiency increase.
+You can view the interactive graph on Desmos here.
+
+Tick Consolidation
+Overview
+A full Orbital AMM consists of multiple Orbital ticks with different k values.
+In this section, we discuss situations in which multiple ticks can be treated as one for the purposes of
+trade calculations. This will set us up to construct a global trade invariant for the overall orbital AMM
+in the next section.
+As a reminder, for the sake of simplicity we will assume each tick has only a single LP.
+
+Consolidation Math
+Imagine we have 2 ticks, Ta and Tb with reserves xa and xb and parameters (ra , ka ) and (rb , kb )
+respectively.
+
+CASE 1: BOTH RESERVES INTERIOR
+
+The simplest case is that both reserves vectors begin and end the trade "interior" to their respective
+ticks, which is to say, not on the tick boundary -- i.e.
+
+xa ⋅ v < k a
+
+and
+
+xb ⋅ v < k b
+
+In this case, both ticks behave locally like normal spherical AMMs, and it must be that ra − xa is
+parallel to rb − xb , since otherwise at least one of the xi would have a different price relative to some
+
+xj on the two AMMs, allowing for an arbitrage.
+Since by definition ra = ra
+
+nv and rb = rb nv , we can see that ra − xa is parallel to rb − xb if
+
+and only if
+
+xa = rrab xb
+This means the combined reserves of the two AMMs are equal to
+
+xa + xb = (1 + rrab ) xb = (ra + rb ) ∥xxbb ∥
+Since our AMM constant is ∥x∥ = r , we can see that reserves scale with the AMM's radius, and so
+locally we can treat the two ticks as a single spherical AMM with
+
+rc = ra + rb
+As soon as one of the reserve vectors hits the boundary of its tick, we can no longer treat the two ticks
+as a single spherical AMM, and must move on to one of the later cases.
+
+CASE 2: BOTH RESERVES ON BOUNDARY
+
+Let's say that both ticks start with reserves that are on their boundaries as defined by their plane
+constants.
+Now imagine that they execute a trade Δ such that their reserves move from x to x′ = x + Δ after
+which they are still on their boundaries.
+In this case for tick A we have
+
+xa ⋅ v = k a
+
+and
+
+x′a ⋅ v = (xa + Δa ) ⋅ v = ka + Δa ⋅ v = ka ⇒ Δa ⋅ v = 0
+
+This means the trade vector Δa must be orthogonal to v if tick reserves both start and end on the
+boundary, and the same must be true for Δb . In other words, this trade is entirely within the subspace
+orthogonal to v .
+As we discussed in the section on tick boundary geometry, ticks on their boundaries behave like
+
+spherical AMMs in the subspace orthogonal to v . Because both AMMs have centers parallel to v ,
+which is orthogonal to every vector in that subspace, we can treat this subspace AMM as having a
+center of 0, and by similar logic to case 1 it has a radius of
+
+sc = sa + sb
+where from the section on tick boundary geometry we have e.g.
+
+sa =
+
+ra2 − (ka − ra n)2
+
+Global Trade Invariant
+This section describes how we can locally compute trades using all of our ticks simultaneously. It is
+extremely dense. Your favorite LLM may be of some assistance if you are wanting to parse it.
+
+Setup
+First, note that the tick consolidation section above shows we can consolidate all currently interior
+ticks into a single spherical tick in Rn , and all currently boundary ticks into another spherical tick in
+the subspace of Rn orthogonal to v . So, for the rest of this section, we will assume we have precisely
+two ticks, one interior and one boundary.
+We call the total reserve vector of our combined Orbital AMM xtotal . As described in the section on
+polar reserve decomposition, we can break this down into components parallel and orthogonal to
+
+v=
+
+1
+(1, 1, … , 1), so
+n
+
+xtotal = αtotal v + wtotal
+for some wtotal ⊥ v .
+We do the same for our consolidated and boundary ticks:
+
+xint = αint v + wint
+xbound = αbound v + wbound
+and because xtotal = xint + xbound , we must have
+
+αtotal = αint + αbound
+wtotal = wint + wbound
+
+Finding alpha_bound and alpha_int
+We know that the boundary reserves xbound must satisfy
+
+xbound ⋅ v = kbound
+by definition, since a boundary AMM always has its reserves on the boundary as defined by its plane
+constraint.
+By the polar reserve decomposition, we also have
+
+xbound ⋅ v = (αbound v + wbound ) ⋅ v = αbound
+so that
+
+αbound = kbound
+Since
+
+αtotal = αint + αbound
+we then have that
+
+αint = αtotal − αbound = xtotal ⋅ v − kbound
+Showing w_int and w_bound are parallel
+Construct an orthonormal basis z1 , … , zn−1 for the subspace orthogonal to v . Together with v , this
+constitutes an orthonormal basis for our entire reserve space, where each basis element represents
+some basket of the constitutent stablecoins in different proportions.
+Since this is just a rotation of the axes, our interior tick is still a spherical AMM between all of these
+new basis vectors, and our boundary tick, being a spherical AMM in the subspace orthogonal to v , is a
+spherical AMM between all the basis vectors of that subspace, z1 , … , zn−1 .
+From this, we can see that the interior tick and boundary tick must hold the zi in equal proportions,
+since otherwise there would be some i and j for which the price of the bundle zi was different to the
+price of the bundle zj on the boundary and interior ticks, which would present an arbitrage
+opportunity.
+Since the zi form a complete basis for the subspace of reserve space orthogonal to v , this implies that
+
+wint must in fact be parallel to wbound .
+
+Finding ||w_int||
+Recall from the section on tick boundary geometry that
+2
+∥wbound ∥2 = s2bound = rbound
+− (kbound − rbound n)2
+
+Since, as we showed in the previous subsection, wint is parallel to wbound , the length of their sum is
+simply the sum of their lengths, so
+
+∥wtotal ∥ = ∥wint ∥ + ∥wbound ∥
+Substituting in, we then obtain
+
+∥wint ∥ = ∥wtotal ∥ − ∥wbound ∥ = ∥xtotal − (xtotal ⋅ v )v ∥ −
+2
+rbound
+− (kbound − rbound n)2
+The Full Invariant
+Our interior tick's sphere invariant is
+2
+rint
+= ∥rint − xint ∥2
+
+by the Pythagorean theorem, this implies
+2
+rint
+= ∥rint − αint v ∥2 + ∥wint ∥2 = (αint − rint n)2 ∥v ∥2 + ∥wint ∥2
+
+Substituting in our results from the previous sections and simplifying, we then obtain our full
+invariant
+2
+
+2
+rint
+= ((xtotal ⋅ v − kbound ) − rint n) +
+
+(∥xtotal − (xtotal ⋅ v )v ∥ −
+
+2
+rbound
+− (kbound − rbound n)2 )
+
+2
+
+Note this is equivalent to the formula for a generalized torus, a higher-dimensional extension of the
+familiar donut shape. Intuitively, this is because we are "adding together" the liquidity from the
+interior tick, a full sphere, with the liquidity from the boundary tick, a lower-dimensional sphere in a
+subspace, just the same way as a donut is construced by centering a sphere over every point on a circle.
+
+Computation
+We can directly compute this invariant as
+
+2
+
+2
+rint
+= ( 1n ∑ni=1 xinti − kbound − rint n) +
+
+(
+
+2
+∑ni=1 x2totali − n1 (∑ni=1 xtotali ) −
+
+2
+rbound
+− (kbound − rbound
+
+n )2 )
+
+2
+
+Implementations of orbital should keep track of the sums of reserves and squared reserves that appear
+in that expression.
+Since trades of one token for another affect only two of terms in those sums, we can compute the
+invariant for trades in constant time regardless of the number of dimensions n.
+
+Trading Within Tick Boundaries
+Logic
+Now that we have the global trade invariant, it is straightforward to compute trades.
+Let's say a user provides d units of asset i to the AMM and wants to exchange it for as much of asset j
+as they can get.
+Starting from some valid reserve state xtotal , we simply update the value of xi to xi + d and then
+solve for the xj that satisfies the global invariant while leaving all other asset balances the same. If
+there are multiple solutions, we choose the one that leaves the ending balances of xj below the centers
+of both the interior and boundary ticks.
+This is a quartic equation in xj , which we can solve easily onchain using Newton's method. As
+mentioned above, if we explicitly track sums in the AMM, the complexity of the equation remains
+constant time regardless of the number of dimensions in the AMM.
+
+Crossing Ticks
+The global trade invariant we derived in the previous section assumes that ticks maintain their status
+as either "interior" or "boundary."
+However, during trades, the system's state can change in a way that causes a previously interior tick's
+reserves to become pinned at its boundary (or vice versa). In that case, we need to remove the tick
+from the consolidated boundary (interior) tick, and add it to the consolidated interior (boundary)
+tick, and then update the torus formula accordingly.
+In this section, we'll explain how to detect when these crossings happen and how to handle them by
+breaking the trades that cause them into segments.
+
+Intuition
+Imagine we have several ticks of different sizes, each one a sphere intersected by a plane determined
+by that tick's plane constant. These spheres might be different sizes depending on their respective
+radii, but we could imagine "zooming in" or "zooming out" on the spheres so that they all appeared to
+be the same size, perhaps represented by a radius of 1.
+If we were to do this, we would see something interesting: all of the ticks that are currently "interior,"
+i.e. all the ticks whose reserves are not precisely on their plane boundary, would appear to have their
+reserves at exactly the same point on the sphere. Geometrically, we can say this is because the spheres
+are similar. In terms of trading, we can say, as above, that this is because otherwise there would be an
+arbitrage opportunity between the ticks.
+Furthermore, ticks have their reserves trapped on their plane boundary and become boundary ticks
+precisely when this common reserve point strays farther from the equal price point than that tick's
+plane boundary.
+So, in order to trade across ticks, we just compute the trade assuming no ticks have moved from
+interior to boundary as described in the section on within-tick trades. Then we check the new
+common interior reserve point and see if it has crossed over the plane boundary of either the closest
+interior tick or the closest boundary tick. If it has, we compute the trade exactly up to that boundary
+point, update the type of the tick that was crossed, and compute the rest of the trade.
+
+Normalization
+We use normalized quantities to compare ticks of different sizes by dividing through by the tick
+radius.
+The normalized position is xnorm = x/r
+The normalized projection is αnorm = xnorm ⋅ v = xr⋅v
+The normalized boundary is k norm = kr
+Note that if αnorm = k norm for a given tick, we can multiply both sides by r to remove the
+normalization and see that the tick is at its boundary.
+Suppose that for a given tick we have αnorm < k norm , so that it is an interior tick. By no-arbitrage, its
+reserve vector x will be parallel to the reserve vectors of all other interior ticks, and so its normalized
+reserve vector xnorm will be precisely equal to the normalized reserve vector of all interior ticks,
+which we will call xnorm
+int .
+
+This interior normalized reserve vector has a projection
+norm
+αint
+= xnorm
+int ⋅ v
+norm
+A given tick i is interior if and only if kinorm > αint
+. To see why, first assume i is interior. Then by
+
+norm
+norm
+definition kinorm > αinorm = αint
+. For the other direction, assume kinorm > αint
+. Then if this
+
+tick were to have the same normalized position as an interior tick, it would not hit its plane constraint,
+implying that by no-arbitrage it must in fact have this normalized position, making it an interior tick.
+
+Trade Segmentation Process
+min
+At any given time, the AMM's location in tick space is demarcated by kint
+, the minimum normalized
+
+k of a currently interior tick, which will be the next tick to become trapped at its boundary if the
+max
+overall reserves continue to move away from the equal price point. Similarly, kbound
+is the maximum
+normalized k of a currently boundary tick, which will be the first tick to become interior again as
+AMM reserves return to the equal price point.
+Let's say we are trying to compute a trade Δtotal where the user putting in some quantity dtotal
+of
+i
+asset Xi to remove some of asset Xj . The steps to segment the trade are as follows:
+Calculate Assuming No Tick Boundary Crossing: Assume all currently interior ticks stay interior and
+all currently boundary ticks stay boundary and compute the potential final AMM state xpotential and
+
+norm
+the corresponding interior tick normalized projection αint
+using the global trade invariant method
+
+above.
+Boundary Crossing Check: If our assumptions were correct and no ticks changed from interior to
+max
+norm
+min
+boundary or vice versa, then we will have kbound
+≤ αint
+≤ kint
+-- i.e. our new interior tick point
+
+separates all the interior tick boundaries from all the boundary tick boundaries.
+If that's the case, we're done. Otherwise, we need to segment the trade.
+Segmentation (If Crossing Detected)
+norm
+We know the normalized boundary being crossed from the prior step, which we'll call kcross
+. This
+norm
+norm
+norm
+crossover is going to occur when αint
+= kcross
+⇒ αint = rint kcross
+.
+
+So then at the crossover point, we have
+total
+norm
+αcrossover = x ⋅ v = xint ⋅ v + xbound ⋅ v = αint + kbound
+= rint kcrossover
++ xtotal
+bound
+total
+where kbound
+is the sum of the k values of all currently boundary ticks.
+
+Find Intersection Trade Δcrossover
+
+We want to find the trade
+
+Δcrossover = (0, … , dcrossover
+, 0, … , −dcrossover
+, 0, …)
+i
+j
+between i and j that respects the global invariant while taking us precisely to the crossover point
+
+xcrossover = x + Δcrossover where we have
+αcrossover = xcrossover ⋅ v = (x + Δcrossover ) ⋅ v = αtotal + Δcrossover ⋅ v
+= αtotal + 1n (dcrossover
+− dcrossover
+)
+i
+j
+so that we see
+
+dcrossover
+=
+j
+
+n(αtotal − αcrossover ) + dcrossover
+i
+
+Substituting that in to the global invariant formula from above yields a quadratic equation in
+
+dcrossover
+which we can simply solve using the quadratic formula.
+i
+Once we find the crossover point, we can execute the trade up to there, adjust the crossed tick from
+interior to boundary or vice versa, and proceed with the rest of the trade, re-segmenting if necessary.
+
+Conclusion
+Today, Orbital is just a design, but we're excited to see how it might change the stablecoin liquidity
+landscape.
+If you're interested in exploring with us, we'd love to hear from you.
+
+Written by
+
+Dave White
+Research Partner
+LinkedIn
+
+Twitter
+
+Warpcast
+
+Biography
+Dave White is a Research Partner at Paradigm. Previously, Dave was a quantitative trader
+and researcher at firms including Headlands, Two Sigma, and Cutler Group. He is three
+credits shy of an A.B. in Mathematics from Harvard University.
+
+Dan Robinson
+General Partner
+LinkedIn
+
+Twitter
+
+Warpcast
+
+Biography
+Dan Robinson is a General Partner at Paradigm, focused on crypto investments and research
+into open-source protocols. Previously, Dan was a protocol researcher at Interstellar.
+Before Interstellar, Dan practiced as a litigation attorney at Paul, Weiss, Rifkind,
+Wharton & Garrison LLP. He earned a J.D. from Harvard Law School and an A.B. from Harvard
+University.
+
+Ciamac Moallemi
+Research Advisor
+Personal
+
+LinkedIn
+
+Twitter
+
+Biography
+Ciamac Moallemi is William von Mueffling Professor of Business in the Decision, Risk, &
+Operations Division of the Graduate School of Business at Columbia University, and the
+Director of the Briger Family Digital Finance Lab. In his work with Paradigm, he focuses
+on applied research in mechanism and market design, with a particular focus on
+decentralized finance.
+
+Disclaimer: This post is for general information purposes only. It does not constitute
+investment advice or a recommendation or solicitation to buy or sell any investment and
+should not be used in the evaluation of the merits of making any investment decision. It
+should not be relied upon for accounting, legal or tax advice or investment
+recommendations. This post reflects the current opinions of the authors and is not made
+on behalf of Paradigm or its affiliates and does not necessarily reflect the opinions of
+Paradigm, its affiliates or individuals associated with Paradigm. The opinions reflected
+herein are subject to change without being updated.
+
+ABOUT
+TEAM
+PORTFOLIO
+WRITING
+OPEN SOURCE
+CAREERS
+LP LOGIN
+
+Twitter
+LinkedIn
+Farcaster
+Contact
+
+Terms
+Disclosures
+Privacy
+CA Privacy
+
+Copyright © 2025 Paradigm Operations LP All rights reserved. “Paradigm” is a
+trademark, and the triangular mobius symbol is a registered trademark of Paradigm
+Operations LP
+
+

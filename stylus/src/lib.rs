@@ -344,59 +344,7 @@ impl OrbitalHelper {
         }
     }
 
-    /// Solves the torus invariant equation to calculate token output amount
-    /// Based on the logic from the whitepaper: update xi to xi + d, then solve for xj
-    /// that satisfies the global invariant while keeping all other asset balances the same
-    /// Uses proper Newton's method to solve the quartic equation in xj
-    /// All values are expected to be in Q96X48 fixed-point format
-    // pub fn solveTorusInvariantBasedOnQuarticFunction {
-    //     &self, 
-    //     total_reserves: Vec<U144>,
-    // } -> U144 {
-    //     let mut updated_total_reserves = total_reserves.clone(); 
-    //     updated_total_reserves[token_in_index.as_limbs()[0] as usize] = 
-    //         Self::add_Q96X48(total_reserves[token_in_index.as_limbs()[0] as usize], amount_in_after_fee);
-    //     let token_out_reserve = total_reserves[token_out_index.as_limbs()[0] as usize];
-    //     // Better initial guess: for stablecoin swaps, output ≈ input, so xj ≈ original_reserve - amount_in
-    //     // This gives us a much better starting point for Newton's method
-    //     let mut x_j = if token_out_reserve > amount_in_after_fee {
-    //         Self::sub_Q96X48(token_out_reserve, amount_in_after_fee)
-    //     } else {
-    //         Self::div_Q96X48(token_out_reserve, Self::convert_to_Q96X48(U144::from(2))) // Fallback to 50% if not enough reserve
-    //     };
-    //     let tolerance = Self::convert_to_Q96X48(U144::from(0.01));
-    //     let epsilon = Self::convert_to_Q96X48(U144::from(0.01)); 
-    //     for _iteration in 0..20 {
-    //         let f_value = calculate_variance_error {
-    //             total_reserves, 
-    //             &updated_total_reserves, 
-    //             &x_j,
-    //         }
-    //         if f_value <= tolerance {
-    //             break;
-    //         }
-    //         let x_j_plus_epsilon = Self::add_Q96X48(x_j, epsilon);
-    //         let f_prime_value = calculate_variance_error {
-    //             total_reserves, 
-    //             &updated_total_reserves, 
-    //             &x_j,
-    //         }
-    //         // Calculate derivative: (f(x + ε) - f(x)) / ε
-    //         let derivative = Self::div_Q96X48(
-    //             Self::sub_Q96X48(f_prime_value, f_value),
-    //             epsilon
-    //         ); 
-    //         // Avoid division by zero
-    //         if derivative == U144::ZERO {
-    //             break;
-    //         }
-            
-    //         // Newton's update: xj = xj - f(xj) / f'(xj)
-    //         let update = Self::div_Q96X48(f_value, derivative);
-    //         x_j = Self::sub_Q96X48(x_j, update);
-
-    //     }
-    // }
+    
     pub fn solveTorusInvariant(
         &self,
         sum_interior_reserves: U144,
