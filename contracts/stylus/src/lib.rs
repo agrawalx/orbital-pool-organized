@@ -42,12 +42,11 @@ impl OrbitalHelper {
         let product: U256 = U256::from(a) * U256::from(b);
         let shifted: U256 = product >> 48;
         // Check if the result fits in U144 (2^144 - 1)
-        let max_u144 = (U256::from(1u128) << 144) - U256::from(1u128);
-        assert!(shifted <= max_u144, "Overflow in Q96X48 multiplication");
+        
         // Convert U256 to U144 by taking the lower 144 bits
         // U144 is represented internally as [u64; 3], so we take the first 2.25 u64s
         let limbs = shifted.as_limbs();
-        let low = limbs[0];
+        let low = limbs[0];et max_u144 = (U256::from(1u128) << 144) - U256::from(1u128)
         let mid = limbs[1];
         let high = limbs[2] & 0xFFFF; // Only take lower 16 bits of the third limb (144 - 128 = 16)
         U144::from_limbs([low, mid, high])
@@ -59,8 +58,6 @@ impl OrbitalHelper {
         let dividend: U256 = U256::from(a) << 48;
         let result: U256 = dividend / U256::from(b);
         // Check if the result fits in U144 (2^144 - 1)
-        let max_u144 = (U256::from(1u128) << 144) - U256::from(1u128);
-        assert!(result <= max_u144, "Overflow in Q96X48 division");
         // Convert U256 to U144 by taking the lower 144 bits
         // U144 is represented internally as [u64; 3], so we take the first 2.25 u64s
         let limbs = result.as_limbs();
@@ -345,92 +342,109 @@ impl OrbitalHelper {
     }
 
     
-    pub fn solveTorusInvariant(
+    pub fn solve_amount_out(
         &self,
-        sum_interior_reserves: U144,
-        interior_consolidated_radius: U144,
-        boundary_consolidated_radius: U144,
-        boundary_total_k_bound: U144,
-        token_in_index: U144,
-        token_out_index: U144,
-        amount_in_after_fee: U144,
-        total_reserves: Vec<U144>,
+        reserves: Vec<U144>,
+        amount_in: U144,
+        token_in_index: U256,
+        token_out_index: U256,
+        k_bound: U144,
+        r_int: U144,
+        s_bound: U144,
     ) -> U144 {
-        let sqrt_n = Self::sqrt_Q96X48(Self::convert_to_Q96X48(U144::from(5)));
-        
-        // Starting from valid reserve state, update xi to xi + d
-        let mut updated_total_reserves = total_reserves.clone();
-        updated_total_reserves[token_in_index.as_limbs()[0] as usize] = 
-            Self::add_Q96X48(total_reserves[token_in_index.as_limbs()[0] as usize], amount_in_after_fee);
-        
-        // Now solve for xj using Newton's method
-        let token_out_reserve = total_reserves[token_out_index.as_limbs()[0] as usize];
-        // Better initial guess: for stablecoin swaps, output ≈ input, so xj ≈ original_reserve - amount_in
-        // This gives us a much better starting point for Newton's method
-        let mut x_j = if token_out_reserve > amount_in_after_fee {
-            Self::sub_Q96X48(token_out_reserve, amount_in_after_fee)
-        } else {
-            Self::div_Q96X48(token_out_reserve, Self::convert_to_Q96X48(U144::from(2))) // Fallback to 50% if not enough reserve
-        };
-        let tolerance = Self::convert_to_Q96X48(U144::from(1));
-        let epsilon = Self::convert_to_Q96X48(U144::from(1)); // Small value for numerical derivative
-        
-        // Newton's method to find xj that satisfies the invariant
-        for _iteration in 0..20 {
-            // Calculate f(xj) = target_r_int_squared - current_r_int_squared
-            let f_value = Self::calculate_invariant_error(
-                x_j,
-                &updated_total_reserves,
-                sum_interior_reserves,
-                interior_consolidated_radius,
-                boundary_consolidated_radius,
-                boundary_total_k_bound,
-                token_out_index,
-                sqrt_n,
-            );
+        let token_in_idx = token_in_index.as_limbs()[0] as usize;
+        let token_out_idx = token_out_index.as_limbs()[0] as usize;
 
-            if f_value <= tolerance {
+        let n = reserves.len();
+        if n == 0 {
+            return U144::ZERO;
+        }
+
+        let initial_invariant = Self::calculate_invariant(&reserves, k_bound, r_int, s_bound);
+
+        let mut temp_reserves = reserves.clone();
+        temp_reserves[token_in_idx] = Self::add_Q96X48(temp_reserves[token_in_idx], amount_in);
+
+        let initial_reserve_out = reserves[token_out_idx];
+        
+        let initial_guess_amount_out = amount_in;
+        let mut x = if initial_reserve_out > initial_guess_amount_out {
+            Self::sub_Q96X48(initial_reserve_out, initial_guess_amount_out)
+        } else {
+            U144::ZERO // Avoid underflow
+        };
+
+        for _ in 0..10 {
+            let new_invariant = {
+                let mut current_reserves = temp_reserves.clone();
+                current_reserves[token_out_idx] = x;
+                Self::calculate_invariant(&current_reserves, k_bound, r_int, s_bound)
+            };
+
+            let (fx, fx_is_negative) = if new_invariant >= initial_invariant {
+                (Self::sub_Q96X48(new_invariant, initial_invariant), false)
+            } else {
+                (Self::sub_Q96X48(initial_invariant, new_invariant), true)
+            };
+
+            if fx < U144::from(1000) {
                 break;
             }
+
+            let h = {
+                let h_min = Self::convert_to_Q96X48(U144::from(1));
+                let h_dyn = Self::div_Q96X48(amount_in, Self::convert_to_Q96X48(U144::from(1000)));
+                if h_dyn > h_min { h_dyn } else { h_min }
+            };
+
+            let fx_plus_h_val = {
+                let mut current_reserves = temp_reserves.clone();
+                current_reserves[token_out_idx] = Self::add_Q96X48(x, h);
+                Self::calculate_invariant(&current_reserves, k_bound, r_int, s_bound)
+            };
             
-            // Calculate f'(xj) using numerical differentiation
-            let x_j_plus_epsilon = Self::add_Q96X48(x_j, epsilon);
-            let f_prime_value = Self::calculate_invariant_error(
-                x_j_plus_epsilon,
-                &updated_total_reserves,
-                sum_interior_reserves,
-                interior_consolidated_radius,
-                boundary_consolidated_radius,
-                boundary_total_k_bound,
-                token_out_index,
-                sqrt_n,
-            );
-            
-            // Calculate derivative: (f(x + ε) - f(x)) / ε
-            let derivative = Self::div_Q96X48(
-                Self::sub_Q96X48(f_prime_value, f_value),
-                epsilon
-            );
-            
-            // Avoid division by zero
-            if derivative == U144::ZERO {
-                break;
-            }
-            
-            // Newton's update: xj = xj - f(xj) / f'(xj)
-            let update = Self::div_Q96X48(f_value, derivative);
-            x_j = Self::sub_Q96X48(x_j, update);
-            
-            if x_j < Self::convert_to_Q96X48(U144::from(1)) {
-                x_j = Self::convert_to_Q96X48(U144::from(1)); // Minimum positive value
+            let fx_minus_h_val = {
+                let mut current_reserves = temp_reserves.clone();
+                if x > h {
+                    current_reserves[token_out_idx] = Self::sub_Q96X48(x, h);
+                } else {
+                    current_reserves[token_out_idx] = U144::ZERO;
+                }
+                Self::calculate_invariant(&current_reserves, k_bound, r_int, s_bound)
+            };
+
+            let (delta_f, _delta_f_is_negative) = if fx_plus_h_val >= fx_minus_h_val {
+                (Self::sub_Q96X48(fx_plus_h_val, fx_minus_h_val), false)
+            } else {
+                (Self::sub_Q96X48(fx_minus_h_val, fx_plus_h_val), true)
+            };
+
+            let two_h = Self::add_Q96X48(h, h);
+            if two_h == U144::ZERO { break; }
+
+            let derivative = Self::div_Q96X48(delta_f, two_h);
+            if derivative == U144::ZERO { break; }
+
+            let update_term = Self::div_Q96X48(fx, derivative);
+
+            if fx_is_negative {
+                x = Self::add_Q96X48(x, update_term);
+            } else {
+                if x > update_term {
+                    x = Self::sub_Q96X48(x, update_term);
+                } else {
+                    x = U144::ZERO;
+                }
             }
         }
+
+        let final_reserve_out = if x < initial_reserve_out { x } else { initial_reserve_out };
+        let final_reserve_out = if final_reserve_out > U144::ZERO { final_reserve_out } else { U144::ZERO };
         
-        // Calculate amount_out = original_reserve - final_xj
-        if token_out_reserve > x_j {
-            Self::sub_Q96X48(token_out_reserve, x_j)
+        if initial_reserve_out > final_reserve_out {
+            Self::sub_Q96X48(initial_reserve_out, final_reserve_out)
         } else {
-            U144::ZERO // Safety check
+            U144::ZERO
         }
     }
 }
@@ -439,7 +453,11 @@ impl OrbitalHelper {
 impl OrbitalHelper {
     // Helper function to calculate variance term from reserves
     fn calculate_variance_term(reserves: &[U144]) -> U144 {
-        let n = Self::convert_to_Q96X48(U144::from(5));
+        let n_val = reserves.len();
+        if n_val == 0 {
+            return U144::ZERO;
+        }
+        let n = Self::convert_to_Q96X48(U144::from(n_val));
         
         let mut sum_total = U144::ZERO;
         let mut sum_squares = U144::ZERO;
@@ -457,50 +475,43 @@ impl OrbitalHelper {
         Self::sqrt_Q96X48(variance_inner)
     }
 
-    // Helper function to calculate the invariant error f(xj) = target_r_int_squared - current_r_int_squared
-    fn calculate_invariant_error(
-        x_j: U144,
-        updated_total_reserves: &Vec<U144>,
-        sum_interior_reserves: U144,
-        interior_consolidated_radius: U144,
-        boundary_consolidated_radius: U144,
-        boundary_total_k_bound: U144,
-        token_out_index: U144,
-        sqrt_n: U144,
+    fn calculate_invariant(
+        reserves: &[U144],
+        k_bound: U144,
+        r_int: U144,
+        s_bound: U144,
     ) -> U144 {
-        // Create reserves with the current xj guess
-        let mut current_reserves = updated_total_reserves.clone();
-        current_reserves[token_out_index.as_limbs()[0] as usize] = x_j;
-        
-        // Calculate variance term using helper function
-        let sqrt_variance = Self::calculate_variance_term(&current_reserves);
-        
-        // Calculate second term: (√variance - boundary_consolidated_radius)²
-        let second_term_diff = Self::sub_Q96X48(sqrt_variance, boundary_consolidated_radius);
-        let second_term_squared = Self::mul_Q96X48(second_term_diff, second_term_diff);
-        
-        // Calculate first term: (1/√n * Σ(x_int_i) - k_bound - r_int√n)²
-        // Note: sum_interior_reserves remains unchanged as per whitepaper logic
-        let scaled_interior_sum = Self::div_Q96X48(sum_interior_reserves, sqrt_n);
-        let r_int_sqrt_n = Self::mul_Q96X48(interior_consolidated_radius, sqrt_n);
+        // This function calculates the full invariant from the paper:
+        // r_int^2 = ((xtotal ⋅ v - k_bound) - r_int*√n)^2 + (||w_total|| - s_bound)^2
+        // where:
+        // xtotal ⋅ v = Σx_i / √n
+        // ||w_total|| = sqrt( Σx_i^2 - (1/n)(Σx_i)^2 )  (variance term)
+        // s_bound = sqrt(r_bound^2 - (k_bound - r_bound*√n)^2)
+
+        let n_val = reserves.len();
+        if n_val == 0 {
+            return U144::ZERO;
+        }
+        let n = Self::convert_to_Q96X48(U144::from(n_val));
+        let sqrt_n = Self::sqrt_Q96X48(n);
+
+        // Calculate first term: ((Σx_i/√n - k_bound) - r_int*√n)²
+        let sum_reserves: U144 = reserves.iter().fold(U144::ZERO, |acc, &x| Self::add_Q96X48(acc, x));
+        let sum_reserves_div_sqrt_n = Self::div_Q96X48(sum_reserves, sqrt_n);
+        let r_int_mul_sqrt_n = Self::mul_Q96X48(r_int, sqrt_n);
+
         let first_term_inner = Self::sub_Q96X48(
-            Self::sub_Q96X48(scaled_interior_sum, boundary_total_k_bound),
-            r_int_sqrt_n
+            Self::sub_Q96X48(sum_reserves_div_sqrt_n, k_bound),
+            r_int_mul_sqrt_n,
         );
         let first_term_squared = Self::mul_Q96X48(first_term_inner, first_term_inner);
-        
-        // Calculate target r²_int
-        let target_r_int_squared = Self::add_Q96X48(first_term_squared, second_term_squared);
-        
-        // Calculate current r²_int from interior_consolidated_radius
-        let current_r_int_squared = Self::mul_Q96X48(interior_consolidated_radius, interior_consolidated_radius);
-        
-        // Return f(xj) = target_r_int_squared - current_r_int_squared
-        let error = if target_r_int_squared > current_r_int_squared {
-            Self::sub_Q96X48(target_r_int_squared, current_r_int_squared)
-        } else {
-            Self::sub_Q96X48(current_r_int_squared, target_r_int_squared)
-        };
-        error
+
+        // Calculate second term: (variance_term - s_bound)²
+        let variance_term = Self::calculate_variance_term(reserves);
+        let second_term_inner = Self::sub_Q96X48(variance_term, s_bound);
+        let second_term_squared = Self::mul_Q96X48(second_term_inner, second_term_inner);
+
+        // Invariant = first_term² + second_term²
+        Self::add_Q96X48(first_term_squared, second_term_squared)
     }
 }

@@ -218,10 +218,10 @@ def calculate_variance_term_unscaled(reserves: list[float]) -> float:
         variance_inner = 0.0  # guard against FP round-off
     return float(sqrt(variance_inner))
 
-def calculate_invariant(reserves: list[int], k_bound: int, r_int: int, r_bound: int) -> int:
+def calculate_invariant(reserves: list[int], k_bound: int, r_int: int, s_bound: int) -> int:
     """
     Calculates the invariant given reserves, k_bound, and r_int.
-    Invariant = (Σx_i/√n - k_bound - r_int*√n)² + variance_term²
+    Invariant = (Σx_i/√n - k_bound - r_int*√n)² + second_term²
     where variance_term = sqrt( Σ x_i^2  -  (1/n)(Σ x_i)^2 )
     """
     n = len(reserves)
@@ -239,26 +239,92 @@ def calculate_invariant(reserves: list[int], k_bound: int, r_int: int, r_bound: 
     first_term = mul_Q96X48(first_term_inner, first_term_inner)
 
     variance_term = calculate_variance_term(reserves)
-    print(variance_term)
-    second_term = variance_term - r_bound
+    second_term = variance_term - s_bound
     second_term_squared = mul_Q96X48(second_term, second_term)
 
     invariant = add_Q96X48(first_term, second_term_squared)
     return invariant
 
+def solve_amount_out(reserves: list[int], amount_in: int, token_in_index: int, token_out_index: int, k_bound: int, r_int: int, s_bound: int) -> int:
+    """
+    Solves for the amount out given an amount in using Newton's method.
+    This function assumes that the invariant is maintained after the trade.
+    """
+    n = len(reserves)
+    if n == 0:
+        return 0
+
+    initial_invariant = calculate_invariant(reserves, k_bound, r_int, s_bound)
+
+    # Create a temporary reserves list with the input amount added
+    temp_reserves = list(reserves)
+    temp_reserves[token_in_index] = add_Q96X48(temp_reserves[token_in_index], amount_in)
+    
+    initial_reserve_out = reserves[token_out_index]
+
+    def f(x_out_reserve: int) -> int:
+        """
+        Calculates the difference between the new invariant and the initial one.
+        x_out_reserve is the final reserve of the output token.
+        """
+        current_reserves = list(temp_reserves)
+        current_reserves[token_out_index] = x_out_reserve
+        new_invariant = calculate_invariant(current_reserves, k_bound, r_int, s_bound)
+        print("difference", initial_invariant, new_invariant, (new_invariant-initial_invariant))
+        return sub_Q96X48(new_invariant, initial_invariant)
+
+    # Initial guess for the final reserve of the output token.
+    # A good guess for the amount_out is amount_in for a stablecoin swap.
+    initial_guess_amount_out = amount_in
+    x = sub_Q96X48(initial_reserve_out, initial_guess_amount_out)
+
+    # Newton's method iteration
+    for _ in range(10):  # 10 iterations are usually enough for convergence
+        fx = f(x)
+        
+        # If fx is close to zero, we have found the root
+        if abs(fx) < 1000: # A small tolerance
+            break
+
+        # Numerical derivative f'(x) = (f(x+h) - f(x-h)) / 2h
+        # h should be a small Q96.48 value.
+        h = max(amount_in // 1000, convert_to_Q96X48(1)) # Use a fraction of amount_in, with a minimum.
+        
+        fx_plus_h = f(x + h)
+        fx_minus_h = f(x - h)
+        
+        delta_f = sub_Q96X48(fx_plus_h, fx_minus_h)
+        two_h = add_Q96X48(h, h)
+
+        if two_h == 0:
+            break
+            
+        derivative = div_Q96X48(delta_f, two_h)
+        print("------------------------------------", derivative)
+        
+        if derivative == 0:
+            # Avoid division by zero; can happen if the function is flat
+            break
+
+        # Newton's update rule: x_new = x - f(x) / f'(x)
+        # f(x) is Q96.48, f'(x) is also Q96.48. The division gives a Q96.48 result.
+        print("-------------------------", fx, derivative)
+        update_term = div_Q96X48(fx, derivative)
+        x = sub_Q96X48(x, update_term)
+        print("-------------------------", x, update_term)
+
+    # Ensure the final reserve is not negative or greater than the initial reserve
+    final_reserve_out = max(0, min(x, initial_reserve_out))
+    print(final_reserve_out, initial_reserve_out)
+    amount_out = sub_Q96X48(initial_reserve_out, final_reserve_out)
+
+    return amount_out
 if __name__ == "__main__":
     reserve1 = [1000*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE]
-    reserve2 = [2000*SCALE, 2000*SCALE, 2000*SCALE, 2000*SCALE, 2000*SCALE]
-    reserve_total = [a + b for a, b in zip(reserve1, reserve2)]
     k_bound = 0 
     r_int1 = calculate_radius(reserve1) / 2**48
-    r_int2 = calculate_radius(reserve2) / 2**48
-    r_int_rootn = (r_int1+r_int2) * sqrt(5)
-    reserve_sum = 15000 
-    reserve_sum_root_n = reserve_sum / sqrt(5)
-    first_term = reserve_sum_root_n - k_bound - r_int_rootn
-    second_term = calculate_variance_term_unscaled([3000,3000,3000,3000,3000])
-    invariant = first_term**2 + second_term**2
-    print(invariant, (r_int1+r_int2)**2)
-    invariant_scaled = calculate_invariant(reserve_total, k_bound, int((r_int1+r_int2)*SCALE), 0)
-    print(invariant_scaled/SCALE, invariant)
+    print(calculate_radius(reserve1))
+    print(reserve1)
+    print(5*SCALE)
+    amount_out = solve_amount_out(reserve1, 5*SCALE, 0, 1, k_bound, int(r_int1*SCALE), 0)
+    print(amount_out/SCALE)
