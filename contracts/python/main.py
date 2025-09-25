@@ -270,8 +270,7 @@ def solve_amount_out(reserves: list[int], amount_in: int, token_in_index: int, t
         current_reserves = list(temp_reserves)
         current_reserves[token_out_index] = x_out_reserve
         new_invariant = calculate_invariant(current_reserves, k_bound, r_int, s_bound)
-        print("difference", initial_invariant, new_invariant, (new_invariant-initial_invariant))
-        return sub_Q96X48(new_invariant, initial_invariant)
+        return new_invariant
 
     # Initial guess for the final reserve of the output token.
     # A good guess for the amount_out is amount_in for a stablecoin swap.
@@ -294,28 +293,26 @@ def solve_amount_out(reserves: list[int], amount_in: int, token_in_index: int, t
         fx_minus_h = f(x - h)
         
         delta_f = sub_Q96X48(fx_plus_h, fx_minus_h)
+        print("delta f", fx_plus_h, fx_minus_h, delta_f)
         two_h = add_Q96X48(h, h)
 
         if two_h == 0:
             break
-            
+        print("-----------------------------------",delta_f*(2**48)/two_h)
         derivative = div_Q96X48(delta_f, two_h)
-        print("------------------------------------", derivative)
-        
+        print("derivative", derivative)
         if derivative == 0:
             # Avoid division by zero; can happen if the function is flat
             break
 
         # Newton's update rule: x_new = x - f(x) / f'(x)
         # f(x) is Q96.48, f'(x) is also Q96.48. The division gives a Q96.48 result.
-        print("-------------------------", fx, derivative)
         update_term = div_Q96X48(fx, derivative)
+        print("update term", update_term)
         x = sub_Q96X48(x, update_term)
-        print("-------------------------", x, update_term)
 
     # Ensure the final reserve is not negative or greater than the initial reserve
     final_reserve_out = max(0, min(x, initial_reserve_out))
-    print(final_reserve_out, initial_reserve_out)
     amount_out = sub_Q96X48(initial_reserve_out, final_reserve_out)
 
     return amount_out
