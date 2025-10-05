@@ -333,7 +333,7 @@ fn calculate_variance_term(reserves: &[U144]) -> U144 {
 }
 
 
-fn calculate_invariant(
+pub fn calculate_invariant(
     reserves: &[U144],
     k_bound: U144,
     r_int: U144,

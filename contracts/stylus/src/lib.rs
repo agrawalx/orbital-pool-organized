@@ -108,4 +108,13 @@ impl OrbitalHelper {
             s_bound,
         )
     }
+
+    pub fn calculate_invariant(
+        reserves: Vec<U144>,
+        k_bound: U144,
+        r_int: U144,
+        s_bound: U144,
+    ) -> U144 {
+        invariant::calculate_invariant(&reserves, k_bound, r_int, s_bound)
+    }
 }

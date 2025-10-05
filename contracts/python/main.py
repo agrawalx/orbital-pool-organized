@@ -58,6 +58,15 @@ def div_Q96X48(a: int, b: int) -> int:
     dividend = a << Q
     result = dividend // b
     return to_U144(result)
+
+def div_Q96X48_signed(a: int, b: int) -> int:
+    """Division for Q96.48 numbers that properly handles negative results"""
+    if b == 0:
+        raise ValueError("Division by zero")
+    dividend = a << Q
+    result = dividend // b
+    # Don't apply U144 mask to preserve sign for negative results
+    return result
 def sqrt_preSclae(value: int) -> float:
     return sqrt(value)
 def sqrt_Q96X48(value: int) -> int:
@@ -175,153 +184,115 @@ def k_depeg(p, r, n):
     return r * math.sqrt(n) - numerator / denominator
 
 
-def calculate_variance_term(reserves: list[int]) -> int:
-    """
-    Equivalent to the Rust calculate_variance_term.
-    Computes sqrt( Σ x_i^2  -  (1/n)(Σ x_i)^2 ) in Q96.48 format.
-    """
-    # n = len(reserves) (converted to Q96.48)
-    n = convert_to_Q96X48(len(reserves))
-
-    sum_total = 0
-    sum_squares = 0
-
-    for reserve in reserves:
-        sum_total = add_Q96X48(sum_total, reserve)
-        squared = mul_Q96X48(reserve, reserve)
-        sum_squares = add_Q96X48(sum_squares, squared)
-
-    # (Σx_i)^2
-    sum_total_squared = mul_Q96X48(sum_total, sum_total)
-
-    # (1/n)(Σx_i)^2
-    one_over_n_sum_squared = div_Q96X48(sum_total_squared, n)
-
-    # variance_inner = Σx_i² - (1/n)(Σx_i)²
-    variance_inner = sub_Q96X48(sum_squares, one_over_n_sum_squared)
-
-    # sqrt(variance_inner)
-    return sqrt_q96x48(variance_inner)
-
-def calculate_variance_term_unscaled(reserves: list[float]) -> float:
-    """
-    Unscaled analog of calculate_variance_term: computes
-    sqrt( Σ x_i^2  -  (1/n)(Σ x_i)^2 ) using float math and returns an unscaled float.
-    """
-    if not reserves:
-        return 0.0
-    n = float(len(reserves))
-    sum_total = float(sum(reserves))
-    sum_squares = float(sum(x * x for x in reserves))
-    variance_inner = sum_squares - (sum_total * sum_total) / n
-    if variance_inner < 0.0:
-        variance_inner = 0.0  # guard against FP round-off
-    return float(sqrt(variance_inner))
-
-def calculate_invariant(reserves: list[int], k_bound: int, r_int: int, s_bound: int) -> int:
-    """
-    Calculates the invariant given reserves, k_bound, and r_int.
-    Invariant = (Σx_i/√n - k_bound - r_int*√n)² + second_term²
-    where variance_term = sqrt( Σ x_i^2  -  (1/n)(Σ x_i)^2 )
-    """
-    n = len(reserves)
-    if n == 0:
-        return 0  # or handle as an error
-
-    sqrt_n = sqrt_q96x48(convert_to_Q96X48(n))
-
-    sum_reserves = sum(reserves)
-    sum_reserves_div_sqrt_n = div_Q96X48(sum_reserves, sqrt_n)
-
-    r_int_mul_sqrt_n = mul_Q96X48(r_int, sqrt_n)
-
-    first_term_inner = sub_Q96X48(sub_Q96X48(sum_reserves_div_sqrt_n, convert_to_Q96X48(k_bound)), r_int_mul_sqrt_n)
-    first_term = mul_Q96X48(first_term_inner, first_term_inner)
-
-    variance_term = calculate_variance_term(reserves)
-    second_term = variance_term - s_bound
-    second_term_squared = mul_Q96X48(second_term, second_term)
-
-    invariant = add_Q96X48(first_term, second_term_squared)
+def calculate_invariant(A:int ,B:int, R_int: int) -> int:
+    print(add_Q96X48(mul_Q96X48(A,A), mul_Q96X48(B, B)), mul_Q96X48(R_int,R_int))
+    invariant = sub_Q96X48(add_Q96X48(mul_Q96X48(A,A), mul_Q96X48(B, B)), mul_Q96X48(R_int, R_int))
     return invariant
 
-def solve_amount_out(reserves: list[int], amount_in: int, token_in_index: int, token_out_index: int, k_bound: int, r_int: int, s_bound: int) -> int:
-    """
-    Solves for the amount out given an amount in using Newton's method.
-    This function assumes that the invariant is maintained after the trade.
-    """
-    n = len(reserves)
-    if n == 0:
-        return 0
-
-    initial_invariant = calculate_invariant(reserves, k_bound, r_int, s_bound)
-
-    # Create a temporary reserves list with the input amount added
-    temp_reserves = list(reserves)
-    temp_reserves[token_in_index] = add_Q96X48(temp_reserves[token_in_index], amount_in)
+def invariant_derivative(A:int,B:int, D:int, n:int, x_j: int, sum_reserves: int) -> int:
+    # Fix: Use proper signed arithmetic for Q96.48 calculations
     
-    initial_reserve_out = reserves[token_out_index]
+    # term1 = 2*A / sqrt(n) 
+    sqrt_n = sqrt_q96x48(convert_to_Q96X48(n))
+    # Use signed division to handle negative A correctly
+    term1 = div_Q96X48_signed(2*A, sqrt_n)
+    
+    # term2 = (B / sqrt(D)) * 2 * (x_j - (sum_reserves + x_j)/n)
+    term2_a = div_Q96X48(B, sqrt_q96x48(D))  # B and sqrt(D) are always positive
+    
+    # Calculate the inner term: x_j - (sum_reserves + x_j)/n
+    avg_term = div_Q96X48(add_Q96X48(sum_reserves, x_j), convert_to_Q96X48(n))
+    diff_term = x_j - avg_term  # This can be negative - use regular subtraction
+    
+    # term2_b = 2 * diff_term (using integer multiplication to preserve sign)
+    term2_b = 2 * diff_term
+    
+    # term2 = term2_a * term2_b (use regular multiplication since term2_a is always positive)
+    # We need to handle the fixed-point scaling manually
+    term2_raw = term2_a * term2_b
+    term2 = term2_raw >> Q  # Divide by 2^Q to maintain Q96.48 format
+    
+    # Total derivative
+    derivative = term1 + term2
+    return derivative 
 
-    def f(x_out_reserve: int) -> int:
-        """
-        Calculates the difference between the new invariant and the initial one.
-        x_out_reserve is the final reserve of the output token.
-        """
-        current_reserves = list(temp_reserves)
-        current_reserves[token_out_index] = x_out_reserve
-        new_invariant = calculate_invariant(current_reserves, k_bound, r_int, s_bound)
-        return new_invariant
+def calculate_A_B_D(sum_reserves:int, sum_reserves_squared:int ,n:int, x_j:int, k_bound: int, r_int: int, s_bound: int) -> list[int, int, int]:
+    sqrt_n = sqrt_q96x48(convert_to_Q96X48(n))
+    S_plus_xj_by_rootN= div_Q96X48(add_Q96X48(sum_reserves, x_j),sqrt_n)
+    print(mul_Q96X48(r_int, sqrt_n))
+    A = sub_Q96X48(S_plus_xj_by_rootN, add_Q96X48(k_bound, mul_Q96X48(r_int, sqrt_n)))
+    Q_plus_xj_squared = add_Q96X48(sum_reserves_squared, mul_Q96X48(x_j, x_j))
+    other_term = div_Q96X48(mul_Q96X48(add_Q96X48(sum_reserves,x_j),add_Q96X48(sum_reserves,x_j)), convert_to_Q96X48(n))
+    D = sub_Q96X48(Q_plus_xj_squared, other_term)
+    B = sub_Q96X48(sqrt_q96x48(D),s_bound)
+    return  [A, B, D]
 
-    # Initial guess for the final reserve of the output token.
-    # A good guess for the amount_out is amount_in for a stablecoin swap.
-    initial_guess_amount_out = amount_in
-    x = sub_Q96X48(initial_reserve_out, initial_guess_amount_out)
-
-    # Newton's method iteration
-    for _ in range(10):  # 10 iterations are usually enough for convergence
-        fx = f(x)
+def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bound: int, r_int: int, s_bound: int, x_j: int) -> int:
+    """
+    Solve for amount_out using Newton's method.
+    
+    Args:
+        sum_reserves: Sum of current reserves
+        sum_reserves_squared: Sum of squares of current reserves  
+        n: Number of assets in the pool
+        k_bound: K boundary parameter
+        r_int: Radius parameter
+        s_bound: S boundary parameter
+    
+    Returns:
+        Amount out from the swap
+    """
+    print(f"Starting solve_amount_out", {x_j})
+    x_j = x_j
+    # Newton's method parameters
+    max_iterations = 10
+    tolerance = convert_to_Q96X48(1)/1000000000000000  # 1 unit tolerance in Q96.48 format
+    
+    for iteration in range(max_iterations):
+        # Calculate A, B, D for current guess
+        [A, B, D] = calculate_A_B_D(sum_reserves, sum_reserves_squared, n, x_j, k_bound, r_int, s_bound)
+        # Calculate invariant f(x_j)
+        invariant_value = calculate_invariant(A, B, r_int)
         
-        # If fx is close to zero, we have found the root
-        if abs(fx) < 1000: # A small tolerance
-            break
-
-        # Numerical derivative f'(x) = (f(x+h) - f(x-h)) / 2h
-        # h should be a small Q96.48 value.
-        h = max(amount_in // 1000, convert_to_Q96X48(1)) # Use a fraction of amount_in, with a minimum.
+        # Calculate derivative f'(x_j)
+        derivative_value = invariant_derivative(A, B, D, n, x_j, sum_reserves)
+        # Check for convergence (invariant close to zero)
+        if abs(invariant_value) < tolerance:
+            return x_j
         
-        fx_plus_h = f(x + h)
-        fx_minus_h = f(x - h)
+        # Newton's method update: x_j = x_j - f(x_j) / f'(x_j)
+        # Use signed division since derivative can be negative
+        delta = div_Q96X48_signed(invariant_value, derivative_value)
+        x_j_new = sub_Q96X48(x_j, delta)
+        print(f"Iteration {iteration}: x_j = {convert_from_Q96X48(x_j)}, f(x_j) = {convert_from_Q96X48(invariant_value)}, f'(x_j) = {convert_from_Q96X48(derivative_value)}, delta = {convert_from_Q96X48(delta)}, x_j_new = {convert_from_Q96X48(x_j_new)}")
+        # Ensure x_j_new is positive
+        if x_j_new <= 0:
+            x_j_new = div_Q96X48(x_j, convert_to_Q96X48(2))  # Half the current value
         
-        delta_f = sub_Q96X48(fx_plus_h, fx_minus_h)
-        print("delta f", fx_plus_h, fx_minus_h, delta_f)
-        two_h = add_Q96X48(h, h)
+        # Check for convergence in x_j
+        if abs(x_j_new - x_j) < tolerance:
+            return x_j_new
+            
+        # Update x_j for next iteration
+        x_j = x_j_new
+    # If we didn't converge, return the last computed value
+    return x_j
+    
 
-        if two_h == 0:
-            break
-        print("-----------------------------------",delta_f*(2**48)/two_h)
-        derivative = div_Q96X48(delta_f, two_h)
-        print("derivative", derivative)
-        if derivative == 0:
-            # Avoid division by zero; can happen if the function is flat
-            break
 
-        # Newton's update rule: x_new = x - f(x) / f'(x)
-        # f(x) is Q96.48, f'(x) is also Q96.48. The division gives a Q96.48 result.
-        update_term = div_Q96X48(fx, derivative)
-        print("update term", update_term)
-        x = sub_Q96X48(x, update_term)
-
-    # Ensure the final reserve is not negative or greater than the initial reserve
-    final_reserve_out = max(0, min(x, initial_reserve_out))
-    amount_out = sub_Q96X48(initial_reserve_out, final_reserve_out)
-
-    return amount_out
 if __name__ == "__main__":
     reserve1 = [1000*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE]
+    reserve2 = [1005*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE]
     k_bound = 0 
-    r_int1 = calculate_radius(reserve1) / 2**48
-    print(calculate_radius(reserve1))
-    print(reserve1)
-    print(5*SCALE)
-    amount_out = solve_amount_out(reserve1, 5*SCALE, 0, 1, k_bound, int(r_int1*SCALE), 0)
-    print(amount_out/SCALE)
+    r_int1 = calculate_radius(reserve1)
+    
+    # Calculate sum of reserves and sum of squares
+    sum_reserves = sum(reserve2)
+    sum_reserves_squared = sum(r * r for r in reserve2) >> Q  # Sum of squares in Q96.48 format
+    
+    x_in = 5 * SCALE  # Amount being swapped in
+    n = len(reserve1)  # Number of assets
+    s_bound = 0
+    amount_out = solve_amount_out(sum_reserves, sum_reserves_squared, n, k_bound, r_int1, s_bound, 995*SCALE)
+    print(f"Amount out: {amount_out/SCALE}")
+
