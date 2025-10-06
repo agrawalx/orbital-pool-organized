@@ -271,70 +271,107 @@ pub fn solveQuadraticInvariant(
     }
 }
 
-
-
 pub fn solve_amount_out(
-    sum_reserves: U144,
-    sum_reserves_squared: U144,
+    sum_reserves: U144, 
+    sum_reserves_squared: U144, 
     n: usize,
     k_bound: U144,
     r_int: U144,
     s_bound: U144,
-    initial_x_j: U144,
-) -> U144 {
-    let mut x_j = initial_x_j;
-    
-    // Newton's method parameters
+    x_j: U144
+) -> U144{
+    let mut x_j = x_j;
     let max_iterations = 10;
-    let tolerance = div_Q96X48(convert_to_Q96X48(U144::from(1u8)), convert_to_Q96X48(U144::from(1_000_000_000u128))); // Very small tolerance (convert_to_Q96X48(1)/10000000000)
+    let tolerance = div_Q96X48(convert_to_Q96X48(U144::from(1u8)), convert_to_Q96X48(U144::from(100000)));  
     
-    for _iteration in 0..max_iterations {
-        // Calculate A, B, D for current guess
-        let (a, b, d) = calculate_A_B_D(sum_reserves, sum_reserves_squared, n, x_j, k_bound, r_int, s_bound);
-        
-        // Calculate invariant f(x_j)
-        let invariant_value = calculate_invariant_simple(a, b, r_int);
-        
-        // Check for convergence (invariant close to zero)
+    for _iteration in 0..max_iterations{
+        let (A, B, D) = calculate_A_B_D(sum_reserves, sum_reserves_squared, n, x_j, k_bound, r_int, s_bound);    
+        let invariant_value = calculate_invariant_simple(A, B, r_int);
+        let derivative_value = invariant_derivative(A, B, D, n, x_j, sum_reserves);
         if invariant_value.abs() < u144_to_i128(tolerance) {
             return x_j;
         }
-        
-        // Calculate derivative f'(x_j)
-        let derivative_value = invariant_derivative(a, b, d, n, x_j, sum_reserves);
-        
-        if derivative_value == 0 {
-            break; // Avoid division by zero
-        }
-        
-        // Newton's method update: x_j = x_j - f(x_j) / f'(x_j)
         let delta = div_Q96X48_signed(invariant_value, derivative_value);
-        let x_j_new_signed = u144_to_i128(x_j) - delta;
-        
-        // Ensure x_j_new is positive
-        let x_j_new = if x_j_new_signed <= 0 {
-            div_Q96X48(x_j, convert_to_Q96X48(U144::from(2))) // Half the current value
-        } else {
-            i128_to_u144(x_j_new_signed)
-        };
-        
-        // Check for convergence in x_j
-        let change = if x_j_new > x_j {
-            x_j_new - x_j
-        } else {
-            x_j - x_j_new
-        };
-        
-        if change < tolerance {
-            return x_j_new;
+        let mut x_j_new = sub_Q96X48(x_j, i128_to_u144(delta));
+        if x_j_new <= U144::ZERO{
+            x_j_new = div_Q96X48(x_j, convert_to_Q96X48(U144::from(2)));
+
         }
-        
-        // Update x_j for next iteration
+        if (x_j_new - x_j).abs() < tolerance {
+            return x_j_new; 
+        }
         x_j = x_j_new;
+
+        
     }
-    
     x_j
+
+
+
 }
+
+// pub fn solve_amount_out(
+//     sum_reserves: U144,
+//     sum_reserves_squared: U144,
+//     n: usize,
+//     k_bound: U144,
+//     r_int: U144,
+//     s_bound: U144,
+//     initial_x_j: U144,
+// ) -> U144 {
+//     let mut x_j = initial_x_j;
+    
+//     // Newton's method parameters
+//     let max_iterations = 10;
+    // let tolerance = div_Q96X48(convert_to_Q96X48(U144::from(1u8)), convert_to_Q96X48(U144::from(1_000_000_000u128))); // Very small tolerance (convert_to_Q96X48(1)/10000000000)
+    
+//     for _iteration in 0..max_iterations {
+//         // Calculate A, B, D for current guess
+//         let (a, b, d) = calculate_A_B_D(sum_reserves, sum_reserves_squared, n, x_j, k_bound, r_int, s_bound);
+        
+//         // Calculate invariant f(x_j)
+//         let invariant_value = calculate_invariant_simple(a, b, r_int);
+        
+//         // Check for convergence (invariant close to zero)
+//         if invariant_value.abs() < u144_to_i128(tolerance) {
+//             return x_j;
+//         }
+        
+//         // Calculate derivative f'(x_j)
+//         let derivative_value = invariant_derivative(a, b, d, n, x_j, sum_reserves);
+        
+//         if derivative_value == 0 {
+//             break; // Avoid division by zero
+//         }
+        
+//         // Newton's method update: x_j = x_j - f(x_j) / f'(x_j)
+//         let delta = div_Q96X48_signed(invariant_value, derivative_value);
+//         let x_j_new_signed = u144_to_i128(x_j) - delta;
+        
+//         // Ensure x_j_new is positive
+//         let x_j_new = if x_j_new_signed <= 0 {
+//             div_Q96X48(x_j, convert_to_Q96X48(U144::from(2))) // Half the current value
+//         } else {
+//             i128_to_u144(x_j_new_signed)
+//         };
+        
+//         // Check for convergence in x_j
+//         let change = if x_j_new > x_j {
+//             x_j_new - x_j
+//         } else {
+//             x_j - x_j_new
+//         };
+        
+//         if change < tolerance {
+//             return x_j_new;
+//         }
+        
+//         // Update x_j for next iteration
+//         x_j = x_j_new;
+//     }
+    
+//     x_j
+// }
 
 pub fn solve_amount_out_legacy(
     reserves: Vec<U144>,

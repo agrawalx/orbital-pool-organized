@@ -246,7 +246,7 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
     x_j = x_j
     # Newton's method parameters
     max_iterations = 10
-    tolerance = convert_to_Q96X48(1)/1000000000000000  # 1 unit tolerance in Q96.48 format
+    tolerance = convert_to_Q96X48(1)/100000  # 1 unit tolerance in Q96.48 format
     
     for iteration in range(max_iterations):
         # Calculate A, B, D for current guess
