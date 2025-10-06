@@ -70,7 +70,7 @@ pub fn div_Q96X48_signed(a: i128, b: i128) -> i128 {
     let mut out: i128 = if hi != 0 || (limbs[1] > i128::MAX as u64 && limbs[2] == 0) {
         i128::MAX
     } else {
-        (((limbs[1] as i128) << 64) | (limbs[0] as i128))
+        ((limbs[1] as i128) << 64) | (limbs[0] as i128)
     };
     if sign_neg { out = out.saturating_neg(); }
     out

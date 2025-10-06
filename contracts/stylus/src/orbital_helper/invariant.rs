@@ -10,7 +10,7 @@ use crate::orbital_helper::fixed_point::{
 pub fn calculate_A_B_D(
     sum_reserves: U144,
     sum_reserves_squared: U144,
-    n: usize,
+    n: u32,
     x_j: U144,
     k_bound: U144,
     r_int: U144,
@@ -66,7 +66,7 @@ pub fn invariant_derivative(
     a: i128,
     b: U144,
     d: U144,
-    n: usize,
+    n: u32,
     x_j: U144,
     sum_reserves: U144,
 ) -> i128 {
@@ -281,7 +281,7 @@ pub fn solveQuadraticInvariant(
 pub fn solve_amount_out(
     sum_reserves: U144,
     sum_reserves_squared: U144,
-    n: usize,
+    n: u32,
     k_bound: U144,
     r_int: U144,
     s_bound: U144,
@@ -339,194 +339,4 @@ pub fn solve_amount_out(
     }
     
     x_j
-}
-
-pub fn solve_amount_out_legacy(
-    reserves: Vec<U144>,
-    amount_in: U144,
-    token_in_index: U256,
-    token_out_index: U256,
-    k_bound: U144,
-    r_int: U144,
-    s_bound: U144,
-) -> U144 {
-    let token_in_idx = token_in_index.as_limbs()[0] as usize;
-    let token_out_idx = token_out_index.as_limbs()[0] as usize;
-
-
-    let n = reserves.len();
-    if n == 0 {
-        return U144::ZERO;
-    }
-
-
-    let initial_invariant = calculate_invariant_legacy(&reserves, k_bound, r_int, s_bound);
-
-
-    let mut temp_reserves = reserves.clone();
-    temp_reserves[token_in_idx] = add_Q96X48(temp_reserves[token_in_idx], amount_in);
-
-
-    let initial_reserve_out = reserves[token_out_idx];
-
-    let initial_guess_amount_out = amount_in;
-    let mut x = if initial_reserve_out > initial_guess_amount_out {
-        sub_Q96X48(initial_reserve_out, initial_guess_amount_out)
-    } else {
-        U144::ZERO // Avoid underflow
-    };
-
-
-    for _ in 0..10 {
-        let new_invariant = {
-            let mut current_reserves = temp_reserves.clone();
-            current_reserves[token_out_idx] = x;
-            calculate_invariant_legacy(&current_reserves, k_bound, r_int, s_bound)
-        };
-
-
-        let (fx, fx_is_negative) = if new_invariant >= initial_invariant {
-            (sub_Q96X48(new_invariant, initial_invariant), false)
-        } else {
-            (sub_Q96X48(initial_invariant, new_invariant), true)
-        };
-
-
-        if fx < U144::from(1000) {
-            break;
-        }
-
-
-        let h = {
-            let h_min = convert_to_Q96X48(U144::from(1));
-            let h_dyn = div_Q96X48(amount_in, convert_to_Q96X48(U144::from(1000)));
-            if h_dyn > h_min { h_dyn } else { h_min }
-        };
-
-
-        let fx_plus_h_val = {
-            let mut current_reserves = temp_reserves.clone();
-            current_reserves[token_out_idx] = add_Q96X48(x, h);
-            calculate_invariant_legacy(&current_reserves, k_bound, r_int, s_bound)
-        };
-
-        let fx_minus_h_val = {
-            let mut current_reserves = temp_reserves.clone();
-            if x > h {
-                current_reserves[token_out_idx] = sub_Q96X48(x, h);
-            } else {
-                current_reserves[token_out_idx] = U144::ZERO;
-            }
-            calculate_invariant_legacy(&current_reserves, k_bound, r_int, s_bound)
-        };
-
-
-        let (delta_f, _delta_f_is_negative) = if fx_plus_h_val >= fx_minus_h_val {
-            (sub_Q96X48(fx_plus_h_val, fx_minus_h_val), false)
-        } else {
-            (sub_Q96X48(fx_minus_h_val, fx_plus_h_val), true)
-        };
-
-
-        let two_h = add_Q96X48(h, h);
-        if two_h == U144::ZERO { break; }
-
-
-        let derivative = div_Q96X48(delta_f, two_h);
-        if derivative == U144::ZERO { break; }
-
-
-        let update_term = div_Q96X48(fx, derivative);
-
-
-        if fx_is_negative {
-            x = add_Q96X48(x, update_term);
-        } else {
-            if x > update_term {
-                x = sub_Q96X48(x, update_term);
-            } else {
-                x = U144::ZERO;
-            }
-        }
-    }
-
-
-    let final_reserve_out = if x < initial_reserve_out { x } else { initial_reserve_out };
-    let final_reserve_out = if final_reserve_out > U144::ZERO { final_reserve_out } else { U144::ZERO };
-
-    if initial_reserve_out > final_reserve_out {
-        sub_Q96X48(initial_reserve_out, final_reserve_out)
-    } else {
-        U144::ZERO
-    }
-}
-
-// Helper function to calculate variance term from reserves
-fn calculate_variance_term(reserves: &[U144]) -> U144 {
-    let n_val = reserves.len();
-    if n_val == 0 {
-        return U144::ZERO;
-    }
-    let n = convert_to_Q96X48(U144::from(n_val));
-
-    let mut sum_total = U144::ZERO;
-    let mut sum_squares = U144::ZERO;
-
-    for &reserve in reserves {
-        sum_total = add_Q96X48(sum_total, reserve);
-        let squared = mul_Q96X48(reserve, reserve);
-        sum_squares = add_Q96X48(sum_squares, squared);
-    }
-
-    // Calculate √(Σx²_total_i - 1/n(Σx_total_i)²)
-    let sum_total_squared = mul_Q96X48(sum_total, sum_total);
-    let one_over_n_sum_squared = div_Q96X48(sum_total_squared, n);
-    let variance_inner = sub_Q96X48(sum_squares, one_over_n_sum_squared);
-    sqrt_Q96X48(variance_inner)
-}
-
-
-pub fn calculate_invariant_legacy(
-    reserves: &[U144],
-    k_bound: U144,
-    r_int: U144,
-    s_bound: U144,
-) -> U144 {
-    // This function calculates the full invariant from the paper:
-    // r_int^2 = ((xtotal ⋅ v - k_bound) - r_int*√n)^2 + (||w_total|| - s_bound)^2
-    // where:
-    // xtotal ⋅ v = Σx_i / √n
-    // ||w_total|| = sqrt( Σx_i^2 - (1/n)(Σx_i)^2 ) (variance term)
-    // s_bound = sqrt(r_bound^2 - (k_bound - r_bound*√n)^2)
-
-
-    let n_val = reserves.len();
-    if n_val == 0 {
-        return U144::ZERO;
-    }
-    let n = convert_to_Q96X48(U144::from(n_val));
-    let sqrt_n = sqrt_Q96X48(n);
-
-
-    // Calculate first term: ((Σx_i/√n - k_bound) - r_int*√n)²
-    let sum_reserves: U144 = reserves.iter().fold(U144::ZERO, |acc, &x| add_Q96X48(acc, x));
-    let sum_reserves_div_sqrt_n = div_Q96X48(sum_reserves, sqrt_n);
-    let r_int_mul_sqrt_n = mul_Q96X48(r_int, sqrt_n);
-
-
-    let first_term_inner = sub_Q96X48(
-        sub_Q96X48(sum_reserves_div_sqrt_n, k_bound),
-        r_int_mul_sqrt_n,
-    );
-    let first_term_squared = mul_Q96X48(first_term_inner, first_term_inner);
-
-
-    // Calculate second term: (variance_term - s_bound)²
-    let variance_term = calculate_variance_term(reserves);
-    let second_term_inner = sub_Q96X48(variance_term, s_bound);
-    let second_term_squared = mul_Q96X48(second_term_inner, second_term_inner);
-
-
-    // Invariant = first_term² + second_term²
-    add_Q96X48(first_term_squared, second_term_squared)
 }
