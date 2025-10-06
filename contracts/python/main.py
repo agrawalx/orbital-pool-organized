@@ -246,7 +246,7 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
     x_j = x_j
     # Newton's method parameters
     max_iterations = 10
-    tolerance = convert_to_Q96X48(1)/1000000000000000  # 1 unit tolerance in Q96.48 format
+    tolerance = convert_to_Q96X48(1)/10000000000  # 1 unit tolerance in Q96.48 format
     
     for iteration in range(max_iterations):
         # Calculate A, B, D for current guess
@@ -263,6 +263,7 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
         # Newton's method update: x_j = x_j - f(x_j) / f'(x_j)
         # Use signed division since derivative can be negative
         delta = div_Q96X48_signed(invariant_value, derivative_value)
+        print(delta)
         x_j_new = sub_Q96X48(x_j, delta)
         print(f"Iteration {iteration}: x_j = {convert_from_Q96X48(x_j)}, f(x_j) = {convert_from_Q96X48(invariant_value)}, f'(x_j) = {convert_from_Q96X48(derivative_value)}, delta = {convert_from_Q96X48(delta)}, x_j_new = {convert_from_Q96X48(x_j_new)}")
         # Ensure x_j_new is positive
@@ -275,7 +276,7 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
             
         # Update x_j for next iteration
         x_j = x_j_new
-    # If we didn't converge, return the last computed value
+    # If we didn't converge, return the last computed valu
     return x_j
     
 

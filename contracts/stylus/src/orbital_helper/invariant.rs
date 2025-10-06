@@ -24,8 +24,9 @@ pub fn calculate_A_B_D(
     let r_int_mul_sqrt_n = mul_Q96X48(r_int, sqrt_n);
     let k_bound_plus_r_int_sqrt_n = add_Q96X48(k_bound, r_int_mul_sqrt_n);
     
-    // A can be negative, so we need signed arithmetic
-    let a_signed = u144_to_i128(s_plus_xj_by_sqrt_n) - u144_to_i128(k_bound_plus_r_int_sqrt_n); // not very safe if the values are over 2^127 - 1. it will wrap around and appear negative 
+    // A can be negative - use signed arithmetic like Python
+    // Python: A = sub_Q96X48(S_plus_xj_by_rootN, add_Q96X48(k_bound, mul_Q96X48(r_int, sqrt_n)))
+    let a_signed = u144_to_i128(s_plus_xj_by_sqrt_n) - u144_to_i128(k_bound_plus_r_int_sqrt_n);
     
     // D = (Q + x_j²) - (S + x_j)²/n
     let q_plus_xj_squared = add_Q96X48(sum_reserves_squared, mul_Q96X48(x_j, x_j));
@@ -41,24 +42,26 @@ pub fn calculate_A_B_D(
 }
 
 /// Calculate invariant using A² + B² - r_int²
+/// This matches the Python implementation exactly
 pub fn calculate_invariant_simple(a: i128, b: U144, r_int: U144) -> i128 {
-    let a_squared = if a >= 0 {
-        let a_u144 = i128_to_u144(a);
-        u144_to_i128(mul_Q96X48(a_u144, a_u144))
-    } else {
-        // For negative A, A² is positive
-        let a_abs = (-a) as u128;
-        let a_u144 = U144::from(a_abs);
-        u144_to_i128(mul_Q96X48(a_u144, a_u144))
-    };
-    
-    let b_squared = u144_to_i128(mul_Q96X48(b, b));
-    let r_int_squared = u144_to_i128(mul_Q96X48(r_int, r_int));
-    
-    a_squared + b_squared - r_int_squared
+    let a_abs: u128 = a.unsigned_abs();
+
+    let a_squared: U256 = (U256::from(a_abs) * U256::from(a_abs)) >> 48;
+
+    let limbs = a_squared.as_limbs();
+    let low_u128 = ((limbs[1] as u128) << 64) | (limbs[0] as u128);
+    let a_squared_u144 = U144::from(low_u128);
+
+    let b_squared = mul_Q96X48(b, b);
+    let r_int_squared = mul_Q96X48(r_int, r_int);
+
+    let sum_squares = u144_to_i128(a_squared_u144) + u144_to_i128(b_squared);
+    sum_squares - u144_to_i128(r_int_squared)
 }
 
+
 /// Calculate the derivative of the invariant with respect to x_j
+/// This matches the Python implementation exactly
 pub fn invariant_derivative(
     a: i128,
     b: U144,
@@ -69,24 +72,26 @@ pub fn invariant_derivative(
 ) -> i128 {
     let sqrt_n = sqrt_Q96X48(convert_to_Q96X48(U144::from(n)));
     
-    // term1 = 2*A / sqrt(n)
+    // term1 = 2*A / sqrt(n) - use signed division
     let two_a = 2 * a;
-    let term1 = div_Q96X48_signed(two_a, u144_to_i128(sqrt_n));
+    let sqrt_n_i128 = u144_to_i128(sqrt_n);
+    let term1 = div_Q96X48_signed(two_a, sqrt_n_i128);
     
     // term2 = (B / sqrt(D)) * 2 * (x_j - (sum_reserves + x_j)/n)
     let term2_a = div_Q96X48(b, sqrt_Q96X48(d));
     
     // Calculate the inner term: x_j - (sum_reserves + x_j)/n
     let avg_term = div_Q96X48(add_Q96X48(sum_reserves, x_j), convert_to_Q96X48(U144::from(n)));
-    let diff_term = u144_to_i128(x_j) - u144_to_i128(avg_term);
+    let diff_term = u144_to_i128(x_j) - u144_to_i128(avg_term); // Can be negative
     
     // term2_b = 2 * diff_term
     let term2_b = 2 * diff_term;
     
-    // term2 = term2_a * term2_b (with proper fixed-point scaling)
+    // term2 = term2_a * term2_b with manual fixed-point scaling
     let term2_raw = u144_to_i128(term2_a) * term2_b;
     let term2 = term2_raw >> 48; // Divide by 2^48 to maintain Q96.48 format
     
+    // Total derivative
     term1 + term2
 }
 
