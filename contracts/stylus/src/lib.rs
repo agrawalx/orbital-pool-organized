@@ -98,7 +98,7 @@ impl OrbitalHelper {
         r_int: U144,
         s_bound: U144,
     ) -> U144 {
-        invariant::solve_amount_out(
+        invariant::solve_amount_out_legacy(
             reserves,
             amount_in,
             token_in_index,
@@ -115,6 +115,6 @@ impl OrbitalHelper {
         r_int: U144,
         s_bound: U144,
     ) -> U144 {
-        invariant::calculate_invariant(&reserves, k_bound, r_int, s_bound)
+        invariant::calculate_invariant_legacy(&reserves, k_bound, r_int, s_bound)
     }
 }

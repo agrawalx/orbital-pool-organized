@@ -3,7 +3,92 @@ use stylus_sdk::alloy_primitives::U256;
 use alloy_primitives::aliases::U144;
 use crate::orbital_helper::fixed_point::{
     add_Q96X48, convert_to_Q96X48, div_Q96X48, mul_Q96X48, sqrt_Q96X48, sub_Q96X48,
+    div_Q96X48_signed, u144_to_i128, i128_to_u144,
 };
+
+/// Calculate A, B, D terms based on the corrected Orbital whitepaper formulas
+pub fn calculate_A_B_D(
+    sum_reserves: U144,
+    sum_reserves_squared: U144,
+    n: usize,
+    x_j: U144,
+    k_bound: U144,
+    r_int: U144,
+    s_bound: U144,
+) -> (i128, U144, U144) {
+    let sqrt_n = sqrt_Q96X48(convert_to_Q96X48(U144::from(n)));
+    
+    // A = (S + x_j)/√n - k_bound - r_int*√n
+    let s_plus_xj = add_Q96X48(sum_reserves, x_j);
+    let s_plus_xj_by_sqrt_n = div_Q96X48(s_plus_xj, sqrt_n);
+    let r_int_mul_sqrt_n = mul_Q96X48(r_int, sqrt_n);
+    let k_bound_plus_r_int_sqrt_n = add_Q96X48(k_bound, r_int_mul_sqrt_n);
+    
+    // A can be negative, so we need signed arithmetic
+    let a_signed = u144_to_i128(s_plus_xj_by_sqrt_n) - u144_to_i128(k_bound_plus_r_int_sqrt_n); // not very safe if the values are over 2^127 - 1. it will wrap around and appear negative 
+    
+    // D = (Q + x_j²) - (S + x_j)²/n
+    let q_plus_xj_squared = add_Q96X48(sum_reserves_squared, mul_Q96X48(x_j, x_j));
+    let s_plus_xj_squared = mul_Q96X48(s_plus_xj, s_plus_xj);
+    let other_term = div_Q96X48(s_plus_xj_squared, convert_to_Q96X48(U144::from(n)));
+    let d = sub_Q96X48(q_plus_xj_squared, other_term);
+    
+    // B = √D - s_bound
+    let sqrt_d = sqrt_Q96X48(d);
+    let b = sub_Q96X48(sqrt_d, s_bound);
+    
+    (a_signed, b, d)
+}
+
+/// Calculate invariant using A² + B² - r_int²
+pub fn calculate_invariant_simple(a: i128, b: U144, r_int: U144) -> i128 {
+    let a_squared = if a >= 0 {
+        let a_u144 = i128_to_u144(a);
+        u144_to_i128(mul_Q96X48(a_u144, a_u144))
+    } else {
+        // For negative A, A² is positive
+        let a_abs = (-a) as u128;
+        let a_u144 = U144::from(a_abs);
+        u144_to_i128(mul_Q96X48(a_u144, a_u144))
+    };
+    
+    let b_squared = u144_to_i128(mul_Q96X48(b, b));
+    let r_int_squared = u144_to_i128(mul_Q96X48(r_int, r_int));
+    
+    a_squared + b_squared - r_int_squared
+}
+
+/// Calculate the derivative of the invariant with respect to x_j
+pub fn invariant_derivative(
+    a: i128,
+    b: U144,
+    d: U144,
+    n: usize,
+    x_j: U144,
+    sum_reserves: U144,
+) -> i128 {
+    let sqrt_n = sqrt_Q96X48(convert_to_Q96X48(U144::from(n)));
+    
+    // term1 = 2*A / sqrt(n)
+    let two_a = 2 * a;
+    let term1 = div_Q96X48_signed(two_a, u144_to_i128(sqrt_n));
+    
+    // term2 = (B / sqrt(D)) * 2 * (x_j - (sum_reserves + x_j)/n)
+    let term2_a = div_Q96X48(b, sqrt_Q96X48(d));
+    
+    // Calculate the inner term: x_j - (sum_reserves + x_j)/n
+    let avg_term = div_Q96X48(add_Q96X48(sum_reserves, x_j), convert_to_Q96X48(U144::from(n)));
+    let diff_term = u144_to_i128(x_j) - u144_to_i128(avg_term);
+    
+    // term2_b = 2 * diff_term
+    let term2_b = 2 * diff_term;
+    
+    // term2 = term2_a * term2_b (with proper fixed-point scaling)
+    let term2_raw = u144_to_i128(term2_a) * term2_b;
+    let term2 = term2_raw >> 48; // Divide by 2^48 to maintain Q96.48 format
+    
+    term1 + term2
+}
 
 /// Solves the quadratic invariant equation to find the amount needed to cross a tick boundary
 /// Based on the formula:
@@ -189,6 +274,69 @@ pub fn solveQuadraticInvariant(
 
 
 pub fn solve_amount_out(
+    sum_reserves: U144,
+    sum_reserves_squared: U144,
+    n: usize,
+    k_bound: U144,
+    r_int: U144,
+    s_bound: U144,
+    initial_x_j: U144,
+) -> U144 {
+    let mut x_j = initial_x_j;
+    
+    // Newton's method parameters
+    let max_iterations = 10;
+    let tolerance = div_Q96X48(convert_to_Q96X48(U144::from(1u8)), convert_to_Q96X48(U144::from(1_000_000_000u128))); // Very small tolerance (convert_to_Q96X48(1)/10000000000)
+    
+    for _iteration in 0..max_iterations {
+        // Calculate A, B, D for current guess
+        let (a, b, d) = calculate_A_B_D(sum_reserves, sum_reserves_squared, n, x_j, k_bound, r_int, s_bound);
+        
+        // Calculate invariant f(x_j)
+        let invariant_value = calculate_invariant_simple(a, b, r_int);
+        
+        // Check for convergence (invariant close to zero)
+        if invariant_value.abs() < u144_to_i128(tolerance) {
+            return x_j;
+        }
+        
+        // Calculate derivative f'(x_j)
+        let derivative_value = invariant_derivative(a, b, d, n, x_j, sum_reserves);
+        
+        if derivative_value == 0 {
+            break; // Avoid division by zero
+        }
+        
+        // Newton's method update: x_j = x_j - f(x_j) / f'(x_j)
+        let delta = div_Q96X48_signed(invariant_value, derivative_value);
+        let x_j_new_signed = u144_to_i128(x_j) - delta;
+        
+        // Ensure x_j_new is positive
+        let x_j_new = if x_j_new_signed <= 0 {
+            div_Q96X48(x_j, convert_to_Q96X48(U144::from(2))) // Half the current value
+        } else {
+            i128_to_u144(x_j_new_signed)
+        };
+        
+        // Check for convergence in x_j
+        let change = if x_j_new > x_j {
+            x_j_new - x_j
+        } else {
+            x_j - x_j_new
+        };
+        
+        if change < tolerance {
+            return x_j_new;
+        }
+        
+        // Update x_j for next iteration
+        x_j = x_j_new;
+    }
+    
+    x_j
+}
+
+pub fn solve_amount_out_legacy(
     reserves: Vec<U144>,
     amount_in: U144,
     token_in_index: U256,
@@ -207,7 +355,7 @@ pub fn solve_amount_out(
     }
 
 
-    let initial_invariant = calculate_invariant(&reserves, k_bound, r_int, s_bound);
+    let initial_invariant = calculate_invariant_legacy(&reserves, k_bound, r_int, s_bound);
 
 
     let mut temp_reserves = reserves.clone();
@@ -228,7 +376,7 @@ pub fn solve_amount_out(
         let new_invariant = {
             let mut current_reserves = temp_reserves.clone();
             current_reserves[token_out_idx] = x;
-            calculate_invariant(&current_reserves, k_bound, r_int, s_bound)
+            calculate_invariant_legacy(&current_reserves, k_bound, r_int, s_bound)
         };
 
 
@@ -254,7 +402,7 @@ pub fn solve_amount_out(
         let fx_plus_h_val = {
             let mut current_reserves = temp_reserves.clone();
             current_reserves[token_out_idx] = add_Q96X48(x, h);
-            calculate_invariant(&current_reserves, k_bound, r_int, s_bound)
+            calculate_invariant_legacy(&current_reserves, k_bound, r_int, s_bound)
         };
 
         let fx_minus_h_val = {
@@ -264,7 +412,7 @@ pub fn solve_amount_out(
             } else {
                 current_reserves[token_out_idx] = U144::ZERO;
             }
-            calculate_invariant(&current_reserves, k_bound, r_int, s_bound)
+            calculate_invariant_legacy(&current_reserves, k_bound, r_int, s_bound)
         };
 
 
@@ -333,7 +481,7 @@ fn calculate_variance_term(reserves: &[U144]) -> U144 {
 }
 
 
-pub fn calculate_invariant(
+pub fn calculate_invariant_legacy(
     reserves: &[U144],
     k_bound: U144,
     r_int: U144,
