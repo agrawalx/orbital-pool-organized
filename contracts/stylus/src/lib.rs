@@ -120,4 +120,16 @@ impl OrbitalHelper {
     ) -> (i128, U144, U144) {
         invariant::calculate_A_B_D(sum_reserves, sum_reserves_squared, n, x_j, k_bound, r_int, s_bound)
     }
+
+    pub fn solve_amount_out(
+        sum_reserves: U144,
+        sum_reserves_squared: U144,
+        n: u32,
+        k_bound: U144,
+        r_int: U144,
+        s_bound: U144,
+        initial_x_j: U144,
+    ) -> U144 {
+        invariant::solve_amount_out(sum_reserves, sum_reserves_squared, n, k_bound, r_int, s_bound, initial_x_j)
+    }
 }

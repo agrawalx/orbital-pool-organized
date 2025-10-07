@@ -311,7 +311,7 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
 
 if __name__ == "__main__":
     reserve1 = [1000*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE]
-    reserve2 = [1005*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE]
+    reserve2 = [1050*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE]
     k_bound = 0 
     r_int1 = calculate_radius(reserve1)
     
@@ -319,14 +319,13 @@ if __name__ == "__main__":
     sum_reserves = sum(reserve2)
     sum_reserves_squared = sum(r * r for r in reserve2) >> Q  # Sum of squares in Q96.48 format
     (A,B,D) = calculate_A_B_D(sum_reserves, sum_reserves_squared, len(reserve1), 995*SCALE, k_bound, r_int1, 0)
-    print(A,B,D,len(reserve1),995*SCALE,sum_reserves)
-    print("wdjwojdow", (invariant_derivative(A,B,D,len(reserve1),995*SCALE,sum_reserves)))
     x_in = 5 * SCALE  # Amount being swapped in
     n = len(reserve1)  # Number of assets
     s_bound = 0
-    amount_out = solve_amount_out(sum_reserves, sum_reserves_squared, n, k_bound, r_int1, s_bound, 995*SCALE)
+    print(sum_reserves,sum_reserves_squared,n,k_bound,r_int1,s_bound,950*SCALE)
+    amount_out = solve_amount_out(sum_reserves, sum_reserves_squared, n, k_bound, r_int1, s_bound, 950*SCALE)
     print(f"Amount out: {amount_out/SCALE}")
-    print(decode_i128_from_32byte("0xfffffffffffffffffffffffffffffffffffffffffffffffff9a3f74c8366cbd2"))
+    print(decode_i128_from_32byte("0x00000000000000000000000000000000000000000000000003b8ea4dd3e48ae5")/SCALE)
 
 
 
