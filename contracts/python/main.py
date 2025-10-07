@@ -216,6 +216,34 @@ def invariant_derivative(A:int,B:int, D:int, n:int, x_j: int, sum_reserves: int)
     derivative = term1 + term2
     return derivative 
 
+def decode_i128_from_32byte(hex_input: str) -> int:
+    """
+    Decode a 32-byte hex string as a signed 128-bit integer.
+    
+    Args:
+        hex_input (str): Hex string with or without '0x' prefix (must be 64 hex chars / 32 bytes)
+    
+    Returns:
+        int: Signed 128-bit integer
+    """
+    # Remove 0x prefix if present
+    hex_input = hex_input.lower().replace("0x", "")
+    
+    if len(hex_input) != 64:
+        raise ValueError("Input must be exactly 32 bytes (64 hex chars)")
+    
+    # Take the lower 16 bytes (last 32 hex chars)
+    low16_hex = hex_input[-32:]
+    
+    # Convert to integer
+    value = int(low16_hex, 16)
+    
+    # Apply 2's complement for signed 128-bit
+    if value >= 2**127:
+        value -= 2**128
+    
+    return value
+
 def calculate_A_B_D(sum_reserves:int, sum_reserves_squared:int ,n:int, x_j:int, k_bound: int, r_int: int, s_bound: int) -> list[int, int, int]:
     sqrt_n = sqrt_q96x48(convert_to_Q96X48(n))
     S_plus_xj_by_rootN= div_Q96X48(add_Q96X48(sum_reserves, x_j),sqrt_n)
@@ -290,10 +318,15 @@ if __name__ == "__main__":
     # Calculate sum of reserves and sum of squares
     sum_reserves = sum(reserve2)
     sum_reserves_squared = sum(r * r for r in reserve2) >> Q  # Sum of squares in Q96.48 format
-    
+    (A,B,D) = calculate_A_B_D(sum_reserves, sum_reserves_squared, len(reserve1), 995*SCALE, k_bound, r_int1, 0)
+    print(A,B,D,len(reserve1),995*SCALE,sum_reserves)
+    print("wdjwojdow", (invariant_derivative(A,B,D,len(reserve1),995*SCALE,sum_reserves)))
     x_in = 5 * SCALE  # Amount being swapped in
     n = len(reserve1)  # Number of assets
     s_bound = 0
     amount_out = solve_amount_out(sum_reserves, sum_reserves_squared, n, k_bound, r_int1, s_bound, 995*SCALE)
     print(f"Amount out: {amount_out/SCALE}")
+    print(decode_i128_from_32byte("0xfffffffffffffffffffffffffffffffffffffffffffffffff9a3f74c8366cbd2"))
+
+
 

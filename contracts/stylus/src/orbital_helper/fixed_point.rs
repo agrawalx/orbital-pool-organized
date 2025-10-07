@@ -55,7 +55,6 @@ pub fn div_Q96X48(a: U144, b: U144) -> U144 {
 /// Divide two Q96.48 numbers with signed result handling.
 /// This function preserves negative results without U144 masking.
 /// Takes signed integers and returns signed result.
-/// Matches Python: dividend = a << Q; result = dividend // b; return result (no mask)
 pub fn div_Q96X48_signed(a: i128, b: i128) -> i128 {
     if b == 0 { return 0; }
     let sign_neg = (a < 0) ^ (b < 0);
@@ -64,16 +63,17 @@ pub fn div_Q96X48_signed(a: i128, b: i128) -> i128 {
     let dividend: U256 = U256::from(a_abs) << 48;
     let divisor: U256 = U256::from(b_abs);
     let q: U256 = dividend / divisor;
-    // Clamp to i128 range
-    let limbs = q.as_limbs();
-    let hi = limbs[2] | limbs[3];
-    let mut out: i128 = if hi != 0 || (limbs[1] > i128::MAX as u64 && limbs[2] == 0) {
+    // If quotient > i128::MAX, clamp to i128::MAX
+    let max_i128_u256 = U256::from(i128::MAX as u128);
+    let out_abs: i128 = if q > max_i128_u256 {
         i128::MAX
     } else {
-        ((limbs[1] as i128) << 64) | (limbs[0] as i128)
+        let limbs = q.as_limbs(); // [low, mid, hi, top] u64s
+        let low_u128: u128 = ((limbs[1] as u128) << 64) | (limbs[0] as u128);
+        low_u128 as i128
     };
-    if sign_neg { out = out.saturating_neg(); }
-    out
+
+    if sign_neg { -out_abs } else { out_abs }
 }
 
 

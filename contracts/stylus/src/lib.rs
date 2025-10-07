@@ -95,7 +95,20 @@ impl OrbitalHelper {
     ) -> i128 {
         invariant::calculate_invariant_simple(a, b, r_int)
     }
-
+    pub fn signed_div_Q96X48(a: i128, b: i128) -> i128 {
+        div_Q96X48_signed(a, b)
+    }
+    pub fn calculate_invariant_derivative(
+        a: i128,
+        b: U144,
+        d: U144,
+        n: u32,
+        x_j: U144,
+        sum_reserves: U144,
+    ) -> i128 {
+        invariant::invariant_derivative(a, b, d, n, x_j, sum_reserves)
+    }
+    
     pub fn calculate_A_B_D(
         sum_reserves: U144,
         sum_reserves_squared: U144,
