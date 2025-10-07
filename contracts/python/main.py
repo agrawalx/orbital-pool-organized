@@ -216,6 +216,34 @@ def invariant_derivative(A:int,B:int, D:int, n:int, x_j: int, sum_reserves: int)
     derivative = term1 + term2
     return derivative 
 
+def decode_i128_from_32byte(hex_input: str) -> int:
+    """
+    Decode a 32-byte hex string as a signed 128-bit integer.
+    
+    Args:
+        hex_input (str): Hex string with or without '0x' prefix (must be 64 hex chars / 32 bytes)
+    
+    Returns:
+        int: Signed 128-bit integer
+    """
+    # Remove 0x prefix if present
+    hex_input = hex_input.lower().replace("0x", "")
+    
+    if len(hex_input) != 64:
+        raise ValueError("Input must be exactly 32 bytes (64 hex chars)")
+    
+    # Take the lower 16 bytes (last 32 hex chars)
+    low16_hex = hex_input[-32:]
+    
+    # Convert to integer
+    value = int(low16_hex, 16)
+    
+    # Apply 2's complement for signed 128-bit
+    if value >= 2**127:
+        value -= 2**128
+    
+    return value
+
 def calculate_A_B_D(sum_reserves:int, sum_reserves_squared:int ,n:int, x_j:int, k_bound: int, r_int: int, s_bound: int) -> list[int, int, int]:
     sqrt_n = sqrt_q96x48(convert_to_Q96X48(n))
     S_plus_xj_by_rootN= div_Q96X48(add_Q96X48(sum_reserves, x_j),sqrt_n)
@@ -246,7 +274,7 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
     x_j = x_j
     # Newton's method parameters
     max_iterations = 10
-    tolerance = convert_to_Q96X48(1)/1000000000000000  # 1 unit tolerance in Q96.48 format
+    tolerance = convert_to_Q96X48(1)/10000000000  # 1 unit tolerance in Q96.48 format
     
     for iteration in range(max_iterations):
         # Calculate A, B, D for current guess
@@ -263,6 +291,7 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
         # Newton's method update: x_j = x_j - f(x_j) / f'(x_j)
         # Use signed division since derivative can be negative
         delta = div_Q96X48_signed(invariant_value, derivative_value)
+        print(delta)
         x_j_new = sub_Q96X48(x_j, delta)
         print(f"Iteration {iteration}: x_j = {convert_from_Q96X48(x_j)}, f(x_j) = {convert_from_Q96X48(invariant_value)}, f'(x_j) = {convert_from_Q96X48(derivative_value)}, delta = {convert_from_Q96X48(delta)}, x_j_new = {convert_from_Q96X48(x_j_new)}")
         # Ensure x_j_new is positive
@@ -275,24 +304,28 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
             
         # Update x_j for next iteration
         x_j = x_j_new
-    # If we didn't converge, return the last computed value
+    # If we didn't converge, return the last computed valu
     return x_j
     
 
 
 if __name__ == "__main__":
     reserve1 = [1000*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE]
-    reserve2 = [1005*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE]
+    reserve2 = [1050*SCALE, 1000*SCALE, 1000*SCALE, 1000*SCALE]
     k_bound = 0 
     r_int1 = calculate_radius(reserve1)
     
     # Calculate sum of reserves and sum of squares
     sum_reserves = sum(reserve2)
     sum_reserves_squared = sum(r * r for r in reserve2) >> Q  # Sum of squares in Q96.48 format
-    
+    (A,B,D) = calculate_A_B_D(sum_reserves, sum_reserves_squared, len(reserve1), 995*SCALE, k_bound, r_int1, 0)
     x_in = 5 * SCALE  # Amount being swapped in
     n = len(reserve1)  # Number of assets
     s_bound = 0
-    amount_out = solve_amount_out(sum_reserves, sum_reserves_squared, n, k_bound, r_int1, s_bound, 995*SCALE)
+    print(sum_reserves,sum_reserves_squared,n,k_bound,r_int1,s_bound,950*SCALE)
+    amount_out = solve_amount_out(sum_reserves, sum_reserves_squared, n, k_bound, r_int1, s_bound, 950*SCALE)
     print(f"Amount out: {amount_out/SCALE}")
+    print(decode_i128_from_32byte("0x00000000000000000000000000000000000000000000000003b8ea4dd3e48ae5")/SCALE)
+
+
 

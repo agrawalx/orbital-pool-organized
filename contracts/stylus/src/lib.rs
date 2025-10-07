@@ -88,33 +88,48 @@ impl OrbitalHelper {
         )
     }
 
-    pub fn solve_amount_out(
-        &self,
-        reserves: Vec<U144>,
-        amount_in: U144,
-        token_in_index: U256,
-        token_out_index: U256,
+    pub fn calculate_invariant_simple(
+        a: i128,
+        b: U144,
+        r_int: U144,
+    ) -> i128 {
+        invariant::calculate_invariant_simple(a, b, r_int)
+    }
+    pub fn signed_div_Q96X48(a: i128, b: i128) -> i128 {
+        div_Q96X48_signed(a, b)
+    }
+    pub fn calculate_invariant_derivative(
+        a: i128,
+        b: U144,
+        d: U144,
+        n: u32,
+        x_j: U144,
+        sum_reserves: U144,
+    ) -> i128 {
+        invariant::invariant_derivative(a, b, d, n, x_j, sum_reserves)
+    }
+    
+    pub fn calculate_A_B_D(
+        sum_reserves: U144,
+        sum_reserves_squared: U144,
+        n: u32,
+        x_j: U144,
         k_bound: U144,
         r_int: U144,
         s_bound: U144,
-    ) -> U144 {
-        invariant::solve_amount_out(
-            reserves,
-            amount_in,
-            token_in_index,
-            token_out_index,
-            k_bound,
-            r_int,
-            s_bound,
-        )
+    ) -> (i128, U144, U144) {
+        invariant::calculate_A_B_D(sum_reserves, sum_reserves_squared, n, x_j, k_bound, r_int, s_bound)
     }
 
-    pub fn calculate_invariant(
-        reserves: Vec<U144>,
+    pub fn solve_amount_out(
+        sum_reserves: U144,
+        sum_reserves_squared: U144,
+        n: u32,
         k_bound: U144,
         r_int: U144,
         s_bound: U144,
+        initial_x_j: U144,
     ) -> U144 {
-        invariant::calculate_invariant(&reserves, k_bound, r_int, s_bound)
+        invariant::solve_amount_out(sum_reserves, sum_reserves_squared, n, k_bound, r_int, s_bound, initial_x_j)
     }
 }

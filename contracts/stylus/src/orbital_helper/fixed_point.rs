@@ -52,6 +52,48 @@ pub fn div_Q96X48(a: U144, b: U144) -> U144 {
     U144::from_limbs([low, mid, high])
 }
 
+/// Divide two Q96.48 numbers with signed result handling.
+/// This function preserves negative results without U144 masking.
+/// Takes signed integers and returns signed result.
+pub fn div_Q96X48_signed(a: i128, b: i128) -> i128 {
+    if b == 0 { return 0; }
+    let sign_neg = (a < 0) ^ (b < 0);
+    let a_abs: u128 = a.unsigned_abs();
+    let b_abs: u128 = b.unsigned_abs().max(1);
+    let dividend: U256 = U256::from(a_abs) << 48;
+    let divisor: U256 = U256::from(b_abs);
+    let q: U256 = dividend / divisor;
+    // If quotient > i128::MAX, clamp to i128::MAX
+    let max_i128_u256 = U256::from(i128::MAX as u128);
+    let out_abs: i128 = if q > max_i128_u256 {
+        i128::MAX
+    } else {
+        let limbs = q.as_limbs(); // [low, mid, hi, top] u64s
+        let low_u128: u128 = ((limbs[1] as u128) << 64) | (limbs[0] as u128);
+        low_u128 as i128
+    };
+
+    if sign_neg { -out_abs } else { out_abs }
+}
+
+
+/// Helper function to convert U144 to i128 for signed operations
+pub fn u144_to_i128(value: U144) -> i128 {
+    // Extract the lower 128 bits and interpret as signed
+    let limbs = value.as_limbs();
+    let low = limbs[0] as i128;
+    let mid = (limbs[1] as i128) << 64;
+    low | mid
+}
+
+/// Helper function to convert i128 back to U144 (for positive results only)
+pub fn i128_to_u144(value: i128) -> U144 {
+    if value < 0 {
+        return U144::ZERO;
+    }
+    U144::from(value as u128)
+}
+
 
 // Square root function for Q96X48 format using Newton's method
 pub fn sqrt_Q96X48(y: U144) -> U144 {
