@@ -82,6 +82,7 @@ Each tick is defined by:
 # Clone the repository
 git clone https://github.com/agrawalx/orbital-pool-organized.git
 cd orbital-pool-organized
+cd contracts
 cd solidity 
 
 # Install dependencies
