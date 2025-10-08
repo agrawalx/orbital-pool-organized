@@ -131,7 +131,7 @@ def calculate_radius(reserves: list[int]) -> int:
     sum_reserves_sq = mul_Q96X48(sum_reserves, sum_reserves)
     term_to_mul = mul_Q96X48(n_minus_1, sum_squares)
     print(f"sum_reserves^2: {convert_from_Q96X48(sum_reserves_sq)}")
-    print(f"term_to_mul ( (n-1)*sum_squares ): {convert_from_Q96X48(term_to_mul)}-")
+    print(f"term_to_mul ( (n-1)*sum_squares ): {convert_from_Q96X48(term_to_mul)}")
 
     if sum_reserves_sq < term_to_mul:
         # This can happen with rounding errors for very similar reserves.
@@ -303,41 +303,65 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
     Returns:
         Amount out from the swap
     """
-    print(f"Starting solve_amount_out", {x_j})
-    x_j = x_j
+    print(f"Starting solve_amount_out with initial x_j (Q96.48): {x_j}")
+    initial_x_j = x_j  # Store initial value
+    
     # Newton's method parameters
     max_iterations = 10
     tolerance = convert_to_Q96X48(1)/10000000000  # 1 unit tolerance in Q96.48 format
+    print(f"Tolerance (Q96.48): {tolerance}")
     
     for iteration in range(max_iterations):
+        print(f"\n--- Iteration {iteration + 1} ---")
+        print(f"Current x_j (Q96.48): {x_j}")
+        
         # Calculate A, B, D for current guess
         [A, B, D] = calculate_A_B_D(sum_reserves, sum_reserves_squared, n, x_j, k_bound, r_int, s_bound)
+        print(f"Calculated A (Q96.48): {A}")
+        print(f"Calculated B (Q96.48): {B}")
+        print(f"Calculated D (Q96.48): {D}")
+        
         # Calculate invariant f(x_j)
         invariant_value = calculate_invariant(A, B, r_int)
+        print(f"Invariant value f(x_j) (Q96.48): {invariant_value}")
         
         # Calculate derivative f'(x_j)
         derivative_value = invariant_derivative(A, B, D, n, x_j, sum_reserves)
+        print(f"Derivative f'(x_j) (Q96.48): {derivative_value}")
+        
         # Check for convergence (invariant close to zero)
         if abs(invariant_value) < tolerance:
+            print(f"Converged due to small invariant value! Final x_j (Q96.48): {x_j}")
             return x_j
         
         # Newton's method update: x_j = x_j - f(x_j) / f'(x_j)
         # Use signed division since derivative can be negative
-        delta = div_Q96X48_signed(invariant_value, derivative_value)
-        print(delta)
+        if derivative_value == 0:
+            print("Warning: Derivative is zero, halving step size")
+            delta = div_Q96X48(x_j - initial_x_j, convert_to_Q96X48(2))
+        else:
+            delta = div_Q96X48_signed(invariant_value, derivative_value)
+        
+        print(f"Calculated delta (Q96.48): {delta}")
+        
         x_j_new = sub_Q96X48(x_j, delta)
-        print(f"Iteration {iteration}: x_j = {convert_from_Q96X48(x_j)}, f(x_j) = {convert_from_Q96X48(invariant_value)}, f'(x_j) = {convert_from_Q96X48(derivative_value)}, delta = {convert_from_Q96X48(delta)}, x_j_new = {convert_from_Q96X48(x_j_new)}")
+        print(f"New x_j (Q96.48): {x_j_new}")
+        
         # Ensure x_j_new is positive
         if x_j_new <= 0:
             x_j_new = div_Q96X48(x_j, convert_to_Q96X48(2))  # Half the current value
+            print(f"x_j_new was negative, halved to (Q96.48): {x_j_new}")
         
         # Check for convergence in x_j
         if abs(x_j_new - x_j) < tolerance:
+            print(f"Converged due to small update! Final x_j (Q96.48): {x_j_new}")
             return x_j_new
             
         # Update x_j for next iteration
         x_j = x_j_new
-    # If we didn't converge, return the last computed valu
+        
+    print(f"Warning: Did not converge after {max_iterations} iterations")
+    print(f"Returning final x_j (Q96.48): {x_j}")
     return x_j
     
 def decompose_reserves(reserves: list[int], n: int) -> tuple[int, list[int]]:
@@ -355,10 +379,10 @@ def decompose_reserves(reserves: list[int], n: int) -> tuple[int, list[int]]:
     """
     # Calculate alpha = (1/n)∑x_i
     alpha = div_Q96X48(sum(reserves), convert_to_Q96X48(n))
-    
+    print(f"Alpha: {convert_from_Q96X48(alpha)}")
     # Calculate w = x - alpha*1 where 1 is vector of ones
     w = [sub_Q96X48(x, alpha) for x in reserves]
-    
+    print(f"Orthogonal components w: {[convert_from_Q96X48(x) for x in w]}")
     return alpha, w
 
 def is_on_tick_boundary(reserves: list[int], n: int, k: int, tolerance: int = None) -> bool:
@@ -377,6 +401,7 @@ def is_on_tick_boundary(reserves: list[int], n: int, k: int, tolerance: int = No
         tolerance = convert_to_Q96X48(1) // (1 << 20) 
         
     alpha, _ = decompose_reserves(reserves, n)
+    print(f"Checking tick boundary: alpha={convert_from_Q96X48(alpha)}, k={convert_from_Q96X48(k)}, tolerance={convert_from_Q96X48(tolerance)}")
     return abs(sub_Q96X48(alpha, k)) < tolerance
 
 def find_crossover_trade(
@@ -485,10 +510,10 @@ def segment_trade(
         if not on_boundaries:
             print("No active boundaries - executing remaining trade")
             d_i_seg = remaining_i
-            
+            print(f"Segment input amount: {convert_from_Q96X48(d_i_seg)}")
             # Use solve_amount_out to compute output amount
-            sum_reserves = sum(current_reserves) - current_reserves[j]
-            sum_squares = sum(mul_Q96X48(x, x) for x in current_reserves) - mul_Q96X48(current_reserves[j], current_reserves[j])
+            sum_reserves = sum(current_reserves)
+            sum_squares = sum(mul_Q96X48(x, x) for x in current_reserves)
             
             new_xj = solve_amount_out(
                 sum_reserves,
@@ -497,7 +522,7 @@ def segment_trade(
                 0,  # k_bound
                 r,
                 0,  # s_bound
-                sub_Q96X48(current_reserves[j], d_i_seg)
+                sub_Q96X48(current_reserves[i], d_i_seg)
             )
             
             d_j_seg = sub_Q96X48(current_reserves[j], new_xj)
