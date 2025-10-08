@@ -553,9 +553,9 @@ def segment_trade(
             d_i_seg = remaining_i
             print(f"Segment input amount: {convert_from_Q96X48(d_i_seg)}")
             # Use solve_amount_out to compute output amount
-            sum_reserves = sub_Q96X48(sum(current_reserves), current_reserves[j])
+            current_reserves[i] = add_Q96X48(current_reserves[i], d_i_seg)
+            sum_reserves = sub_Q96X48(sum(current_reserves), current_reserves[j]) 
             sum_squares = sub_Q96X48(sum(mul_Q96X48(x, x) for x in current_reserves), mul_Q96X48(current_reserves[j], current_reserves[j]))
-            print(f"Sum reserves: ", convert_from_Q96X48(sum_reserves))
             print(f"Sum squares: ", convert_from_Q96X48(sum_squares))
             new_xj = solve_amount_out(
                 sum_reserves,
@@ -564,7 +564,7 @@ def segment_trade(
                 0,  # k_bound
                 r,
                 0,  # s_bound
-                sub_Q96X48(current_reserves[i], d_i_seg)
+                sub_Q96X48(current_reserves[j], d_i_seg)
             )
             
             d_j_seg = sub_Q96X48(current_reserves[j], new_xj)
