@@ -100,7 +100,7 @@ forge test
 # Deploy pool and the mock tokens
 forge script script/DeployAndConfig.s.sol --rpc-url $RPC_URL --private-key $PRIVATE_KEY --broadcast
 
-# Command to add liqudity
+# Command to add liquidity
 cast send $POOL_ADDRESS "addLiquidity(uint256,uint256[5])" 3000000000000000 "[1000000000000000000000,1000000000000000000000,1000000000000000000000,1000000000000000000000,1000000000000000000000]" --rpc-url $RPC_URL --private-key $PRIVATE_KEY
 
 # Command to swap 
