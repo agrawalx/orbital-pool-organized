@@ -571,7 +571,8 @@ contract OrbitalPool {
     function swap(
         uint144 amountIn,
         uint144 tokenIn,
-        uint144 tokenOut
+        uint144 tokenOut,
+        uint144 minAmountOut
     ) external {
         if (tokenIn == tokenOut) {
             revert SameToken();
@@ -596,98 +597,98 @@ contract OrbitalPool {
             tokenOut,
             amountIn
         );
-        // while (amountRemaining >= (1 << 48)) {
-        //     (
-        //         ConsolidatedTickData memory interiorTickData,
+        while (amountRemaining >= (1 << 48)) {
+            // (
+            //     ConsolidatedTickData memory interiorTickData,
 
-        //     ) = _getConsolidatedTickData();
+            // ) = _getConsolidatedTickData();
 
-        //     uint144 alphaIntNormBeforeSwap = computeAlphaIntNorm(
-        //         interiorTickData
-        //     );
+            uint144 alphaIntNormBeforeSwap = computeAlphaIntNorm(
+                interiorTickData
+            );
 
-        //     uint144 estimatedAmountOut = _calculateSwapOutput(
-        //         interiorTickData.totalReserves,
-        //         tokenIn,
-        //         tokenOut,
-        //         amountRemaining
-        //     );
+            // uint144 estimatedAmountOut = _calculateSwapOutput(
+            //     interiorTickData.totalReserves,
+            //     tokenIn,
+            //     tokenOut,
+            //     amountRemaining
+            // );
 
-        //     uint144[] memory hypotheticalReserves = new uint144[](TOKENS_COUNT);
-        //     for (uint256 i = 0; i < TOKENS_COUNT; i++) {
-        //         hypotheticalReserves[i] = interiorTickData.totalReserves[i];
-        //     }
-        //     hypotheticalReserves[tokenIn] += amountRemaining;
-        //     if (estimatedAmountOut > hypotheticalReserves[tokenOut]) {
-        //         revert InsufficientLiquidity();
-        //     }
-        //     hypotheticalReserves[tokenOut] -= estimatedAmountOut;
+            uint144[] memory hypotheticalReserves = new uint144[](TOKENS_COUNT);
+            for (uint256 i = 0; i < TOKENS_COUNT; i++) {
+                hypotheticalReserves[i] = interiorTickData.totalReserves[i];
+            }
+            hypotheticalReserves[tokenIn] += amountRemaining;
+            if (estimatedAmountOut > hypotheticalReserves[tokenOut]) {
+                revert InsufficientLiquidity();
+            }
+            hypotheticalReserves[tokenOut] -= estimatedAmountOut;
 
-        //     uint144 alphaIntNormAfterSwap = 0;
-        //     for (uint256 i = 0; i < TOKENS_COUNT; i++) {
-        //         alphaIntNormAfterSwap += uint144(
-        //             (uint256(hypotheticalReserves[i]) << 48) /
-        //                 interiorTickData.consolidatedRadius
-        //         );
-        //     }
+            uint144 alphaIntNormAfterSwap = 0;
+            for (uint256 i = 0; i < TOKENS_COUNT; i++) {
+                alphaIntNormAfterSwap += uint144(
+                    (uint256(hypotheticalReserves[i]) << 48) /
+                        interiorTickData.consolidatedRadius
+                );
+            }
 
-        //     (uint144 kIntMin, uint144 kBoundMax) = calculateKBounds();
+            (uint144 kIntMin, uint144 kBoundMax) = calculateKBounds();
 
-        //     bool crossing = (alphaIntNormAfterSwap > kBoundMax ||
-        //         alphaIntNormAfterSwap < kIntMin);
+            bool crossing = (alphaIntNormAfterSwap > kBoundMax ||
+                alphaIntNormAfterSwap < kIntMin);
 
-        //     if (!crossing) {
-        //         uint144 amountOutFull = estimatedAmountOut;
+            if (!crossing) {
+                uint144 amountOutFull = estimatedAmountOut;
 
-        //         _updateReserves(
-        //             tokenIn,
-        //             amountRemaining,
-        //             tokenOut,
-        //             amountOutFull
-        //         );
+                _updateReserves(
+                    tokenIn,
+                    amountRemaining,
+                    tokenOut,
+                    amountOutFull
+                );
 
-        //         tokens[tokenOut].safeTransfer(msg.sender, amountOutFull);
+                tokens[tokenOut].safeTransfer(msg.sender, amountOutFull);
 
-        //         totalAmountOut += amountOutFull;
-        //         amountRemaining = 0;
-        //         break;
-        //     }
+                totalAmountOut += amountOutFull;
+                amountRemaining = 0;
+                break;
+            }
 
-        //     uint144 kCross = determineDirectionAndKCross(
-        //         alphaIntNormBeforeSwap,
-        //         alphaIntNormAfterSwap,
-        //         kIntMin,
-        //         kBoundMax
-        //     );
+            uint144 kCross = determineDirectionAndKCross(
+                alphaIntNormBeforeSwap,
+                alphaIntNormAfterSwap,
+                kIntMin,
+                kBoundMax
+            );
 
-        //     uint144 delta = computeDeltaToCrossBoundary(
-        //         alphaIntNormBeforeSwap,
-        //         kCross,
-        //         amountRemaining,
-        //         interiorTickData.consolidatedRadius,
-        //         interiorTickData.totalReserves,
-        //         tokenIn,
-        //         tokenOut
-        //     );
+            uint144 delta = computeDeltaToCrossBoundary(
+                alphaIntNormBeforeSwap,
+                kCross,
+                amountRemaining,
+                interiorTickData.consolidatedRadius,
+                interiorTickData.totalReserves,
+                tokenIn,
+                tokenOut
+            );
 
-        //     uint144 amountOutPartial = _calculateSwapOutput(
-        //         interiorTickData.totalReserves,
-        //         tokenIn,
-        //         tokenOut,
-        //         delta
-        //     );
+            uint144 amountOutPartial = _calculateSwapOutput(
+                interiorTickData.totalReserves,
+                tokenIn,
+                tokenOut,
+                delta
+            );
 
-        //     _updateReserves(tokenIn, delta, tokenOut, amountOutPartial);
+            _updateReserves(tokenIn, delta, tokenOut, amountOutPartial);
 
-        //     tokens[tokenOut].safeTransfer(msg.sender, amountOutPartial);
+            tokens[tokenOut].safeTransfer(msg.sender, amountOutPartial);
 
-        //     totalAmountOut += amountOutPartial;
-        //     amountRemaining -= delta;
+            totalAmountOut += amountOutPartial;
+            amountRemaining -= delta;
 
-        //     _flipTickStatus(kCross);
-        // }
+            _flipTickStatus(kCross);
+        }
 
-        // if (totalAmountOut < minAmountOut) revert SlippageExceeded();
+        if (totalAmountOut < minAmountOut) revert SlippageExceeded();
         tokens[tokenOut].safeTransfer(msg.sender, estimatedAmountOut >> 48);
 
         emit Swap(
