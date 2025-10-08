@@ -186,7 +186,6 @@ def calculate_k(p,n,radius):
     print(f"Final k value: {convert_from_Q96X48(result)}")
     return result
 
-import math
 
 def k_depeg(p, r, n):
     """
@@ -278,15 +277,51 @@ def decode_i128_from_32byte(hex_input: str) -> int:
     return value
 
 def calculate_A_B_D(sum_reserves:int, sum_reserves_squared:int ,n:int, x_j:int, k_bound: int, r_int: int, s_bound: int) -> list[int, int, int]:
+    print("\n--- calculate_A_B_D ---")
+    print(f"sum_reserves: {convert_from_Q96X48(sum_reserves)}")
+    print(f"sum_reserves_squared: {convert_from_Q96X48(sum_reserves_squared)}")
+    print(f"n: {n}")
+    print(f"x_j: {convert_from_Q96X48(x_j)}")
+    print(f"k_bound: {convert_from_Q96X48(k_bound)}")
+    print(f"r_int: {convert_from_Q96X48(r_int)}")
+    print(f"s_bound: {convert_from_Q96X48(s_bound)}")
+
     sqrt_n = sqrt_q96x48(convert_to_Q96X48(n))
-    S_plus_xj_by_rootN= div_Q96X48(add_Q96X48(sum_reserves, x_j),sqrt_n)
-    print(mul_Q96X48(r_int, sqrt_n))
-    A = sub_Q96X48(S_plus_xj_by_rootN, add_Q96X48(k_bound, mul_Q96X48(r_int, sqrt_n)))
-    Q_plus_xj_squared = add_Q96X48(sum_reserves_squared, mul_Q96X48(x_j, x_j))
-    other_term = div_Q96X48(mul_Q96X48(add_Q96X48(sum_reserves,x_j),add_Q96X48(sum_reserves,x_j)), convert_to_Q96X48(n))
+    print(f"sqrt_n: {convert_from_Q96X48(sqrt_n)}")
+
+    S_plus_xj = add_Q96X48(sum_reserves, x_j)
+    S_plus_xj_by_rootN = div_Q96X48(S_plus_xj, sqrt_n)
+    print(f"S_plus_xj: {convert_from_Q96X48(S_plus_xj)}")
+    print(f"S_plus_xj_by_rootN: {convert_from_Q96X48(S_plus_xj_by_rootN)}")
+
+    r_times_sqrt_n = mul_Q96X48(r_int, sqrt_n)
+    print(f"r_int * sqrt_n: {convert_from_Q96X48(r_times_sqrt_n)}")
+
+    A = sub_Q96X48(S_plus_xj_by_rootN, add_Q96X48(k_bound, r_times_sqrt_n))
+    print(f"A: {convert_from_Q96X48(A)}")
+
+    xj_squared = mul_Q96X48(x_j, x_j)
+    Q_plus_xj_squared = add_Q96X48(sum_reserves_squared, xj_squared)
+    print(f"xj_squared: {convert_from_Q96X48(xj_squared)}")
+    print(f"Q_plus_xj_squared: {convert_from_Q96X48(Q_plus_xj_squared)}")
+
+    S_plus_xj_squared = mul_Q96X48(S_plus_xj, S_plus_xj)
+    print(f"S_plus_xj_squared: {convert_from_Q96X48(S_plus_xj_squared)}")
+
+    other_term = div_Q96X48(S_plus_xj_squared, convert_to_Q96X48(n))
+    print(f"other_term: {convert_from_Q96X48(other_term)}")
+
     D = sub_Q96X48(Q_plus_xj_squared, other_term)
-    B = sub_Q96X48(sqrt_q96x48(D),s_bound)
-    return  [A, B, D]
+    print(f"D: {convert_from_Q96X48(D)}")
+
+    sqrt_D = sqrt_q96x48(D)
+    print(f"sqrt(D): {convert_from_Q96X48(sqrt_D)}")
+
+    B = sub_Q96X48(sqrt_D, s_bound)
+    print(f"B: {convert_from_Q96X48(B)}")
+
+    print("--- End calculate_A_B_D ---\n")
+    return [A, B, D]
 
 def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bound: int, r_int: int, s_bound: int, x_j: int) -> int:
     """
@@ -324,6 +359,12 @@ def solve_amount_out(sum_reserves: int, sum_reserves_squared: int, n: int, k_bou
         # Calculate invariant f(x_j)
         invariant_value = calculate_invariant(A, B, r_int)
         print(f"Invariant value f(x_j) (Q96.48): {invariant_value}")
+
+        # Check if invariant is exactly zero
+        if convert_from_Q96X48(invariant_value) == 0:
+            print(f"Found exact solution! Invariant is zero at x_j (Q96.48): {x_j}")
+            print(f"Returning final x_j (Q96.48): {x_j}")
+            return x_j
         
         # Calculate derivative f'(x_j)
         derivative_value = invariant_derivative(A, B, D, n, x_j, sum_reserves)
@@ -512,9 +553,10 @@ def segment_trade(
             d_i_seg = remaining_i
             print(f"Segment input amount: {convert_from_Q96X48(d_i_seg)}")
             # Use solve_amount_out to compute output amount
-            sum_reserves = sum(current_reserves)
-            sum_squares = sum(mul_Q96X48(x, x) for x in current_reserves)
-            
+            sum_reserves = sub_Q96X48(sum(current_reserves), current_reserves[j])
+            sum_squares = sub_Q96X48(sum(mul_Q96X48(x, x) for x in current_reserves), mul_Q96X48(current_reserves[j], current_reserves[j]))
+            print(f"Sum reserves: ", convert_from_Q96X48(sum_reserves))
+            print(f"Sum squares: ", convert_from_Q96X48(sum_squares))
             new_xj = solve_amount_out(
                 sum_reserves,
                 sum_squares,
@@ -612,53 +654,53 @@ if __name__ == "__main__":
     print(f"Total input: {total_in}")
     print(f"Total output: {total_out}")
 
-    # Test Case 4: solve_amount_out with various scenarios
-    print("\n=== Test Case 4: Amount Out Calculation ===")
+    # # Test Case 4: solve_amount_out with various scenarios
+    # print("\n=== Test Case 4: Amount Out Calculation ===")
     
-    # Scenario 1: Small trade
-    small_reserves = [1000*SCALE] * 5
-    sum_reserves = sum(small_reserves)
-    sum_squares = sum(mul_Q96X48(x, x) for x in small_reserves) >> Q
+    # # Scenario 1: Small trade
+    # small_reserves = [1000*SCALE] * 5
+    # sum_reserves = sum(small_reserves)
+    # sum_squares = sum(mul_Q96X48(x, x) for x in small_reserves) >> Q
     
-    print("\nTesting small trade (5 tokens)")
-    small_amount_out = solve_amount_out(
-        sum_reserves,
-        sum_squares,
-        n,
-        0,  # k_bound
-        r,
-        0,  # s_bound
-        995*SCALE
-    )
-    print(f"Amount out for small trade: {convert_from_Q96X48(small_amount_out)}")
+    # print("\nTesting small trade (5 tokens)")
+    # small_amount_out = solve_amount_out(
+    #     sum_reserves,
+    #     sum_squares,
+    #     n,
+    #     0,  # k_bound
+    #     r,
+    #     0,  # s_bound
+    #     995*SCALE
+    # )
+    # print(f"Amount out for small trade: {convert_from_Q96X48(small_amount_out)}")
 
-    # Scenario 2: Large trade
-    print("\nTesting large trade (100 tokens)")
-    large_amount_out = solve_amount_out(
-        sum_reserves,
-        sum_squares,
-        n,
-        0,
-        r,
-        0,
-        900*SCALE
-    )
-    print(f"Amount out for large trade: {convert_from_Q96X48(large_amount_out)}")
+    # # Scenario 2: Large trade
+    # print("\nTesting large trade (100 tokens)")
+    # large_amount_out = solve_amount_out(
+    #     sum_reserves,
+    #     sum_squares,
+    #     n,
+    #     0,
+    #     r,
+    #     0,
+    #     900*SCALE
+    # )
+    # print(f"Amount out for large trade: {convert_from_Q96X48(large_amount_out)}")
 
-    # Test Case 5: Edge Cases
-    print("\n=== Test Case 5: Edge Cases ===")
+    # # Test Case 5: Edge Cases
+    # print("\n=== Test Case 5: Edge Cases ===")
     
-    # Edge case 1: Very imbalanced reserves
-    print("\nTesting very imbalanced reserves")
-    edge_reserves = [10000*SCALE, 100*SCALE, 100*SCALE, 100*SCALE, 100*SCALE]
-    r_edge = calculate_radius(edge_reserves)
-    k_edge = calculate_k(convert_to_Q96X48(10), n, r_edge)  # test with extreme price ratio
+    # # Edge case 1: Very imbalanced reserves
+    # print("\nTesting very imbalanced reserves")
+    # edge_reserves = [10000*SCALE, 100*SCALE, 100*SCALE, 100*SCALE, 100*SCALE]
+    # r_edge = calculate_radius(edge_reserves)
+    # k_edge = calculate_k(convert_to_Q96X48(10), n, r_edge)  # test with extreme price ratio
     
-    # Edge case 2: Trade with zero input
-    print("\nTesting trade with zero input")
-    zero_segments = segment_trade(initial_reserves, boundaries, n, 0, 1, 0, r)
+    # # Edge case 2: Trade with zero input
+    # print("\nTesting trade with zero input")
+    # zero_segments = segment_trade(initial_reserves, boundaries, n, 0, 1, 0, r)
     
-    print("\nTest suite completed!")
+    # print("\nTest suite completed!")
 
 
 

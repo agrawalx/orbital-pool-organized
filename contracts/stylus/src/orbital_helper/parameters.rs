@@ -10,6 +10,7 @@ pub fn calculate_radius(reserve: U144) -> U144 {
     let denominator = sub_Q96X48(one, div_Q96X48(one, root5));
     return div_Q96X48(reserve, denominator);
 }
+
 // calculate k from p and r using the formula: k = r√n - r(p+n-1)/√(n(p²+n-1))
 pub fn calculateK(depeg_limit: U144, radius: U144) -> U144 {
     // Note: assuming n = 5 based on the context (golden ratio calculations)
@@ -52,12 +53,14 @@ pub fn calculateK(depeg_limit: U144, radius: U144) -> U144 {
     // Calculate final result: r√n - r(p + n - 1) / √(n(p² + n - 1))
     sub_Q96X48(first_term, second_term)
 }
+
 // return k and r together
 pub fn getTickParameters(depeg_limit: U144, reserve: U144) -> (U144, U144) {
     let radius = calculate_radius(reserve);
     let k = calculateK(depeg_limit, radius);
     (k, radius)
 }
+
 pub fn calculateBoundaryTickS(radius: U144, k: U144) -> U144 {
     // Implement the boundary tick calculation logic here
     // s = sqrt(r² - (k - r√n)²)
