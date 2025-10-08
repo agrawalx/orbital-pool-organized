@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-interface IOrbitalMATH_HELPER {
+interface IOrbitalMathHelper {
     function sqrtQ96X48(uint144 y) external pure returns (uint144);
 
     function getTickParameters(
@@ -40,7 +40,7 @@ interface IOrbitalMATH_HELPER {
 
 /**
  * @title OrbitalPool
- * @notice A 5-token AMM implementing the Orbital mathematical model
+ * @notice A n-token AMM implementing the Orbital mathematical model
  * @dev Uses a torus-based invariant for price discovery and liquidity management. It uses the notation Q96.48 to represent decimals.
  * @dev Every numerical value is marked in this format unless marked otherwise.
  * @author Orbital Protocol
@@ -49,13 +49,13 @@ contract OrbitalPool {
     using SafeERC20 for IERC20;
 
     uint256 public immutable TOKENS_COUNT; // This is not in Q96.48 format
-    uint144 public ROOT_N ;
-    IOrbitalMATH_HELPER public immutable MATH_HELPER;
+    uint144 public ROOT_N;
+    IOrbitalMathHelper public immutable MATH_HELPER;
     IERC20[] public tokens;
     uint144[] public totalReserves;
     mapping(uint144 p => Tick) public activeTicks;
     uint144[] public allP;
-    
+
     /**
      * @notice Status of a tick in the pool
      */
@@ -77,6 +77,8 @@ contract OrbitalPool {
         TickStatus status; /// @dev Current status of the tick
         mapping(address => uint144) lpShares; /// @dev LP shares per address
         uint144[] reserves; /// @dev Reserves of each token
+        uint144 sumOfReserves; /// @dev Sum of reserves of all tokens
+        uint144 sumOfSquareOfReserves; /// @dev Sum of square of reserves of all tokens
     }
 
     /**
@@ -153,7 +155,7 @@ contract OrbitalPool {
      */
     constructor(IERC20[] memory _tokens, address mathHelperAddress) {
         require(_tokens.length > 0, "At least one token required");
-        MATH_HELPER = IOrbitalMATH_HELPER(mathHelperAddress);
+        MATH_HELPER = IOrbitalMathHelper(mathHelperAddress);
         TOKENS_COUNT = _tokens.length;
         tokens = _tokens;
         totalReserves = new uint144[](_tokens.length);
@@ -269,6 +271,18 @@ contract OrbitalPool {
         return abi.decode(ret, (uint144));
     }
 
+    function setSquareRootN() external {
+        (bool ok, bytes memory ret) = address(MATH_HELPER).call(
+            abi.encodeWithSignature(
+                "sqrtQ96X48(uint144)",
+                uint144(TOKENS_COUNT)
+            )
+        );
+        if (!ok || ret.length == 0) revert NumericalError();
+        uint144 rootn = abi.decode(ret, (uint144));
+        ROOT_N = rootn;
+    }
+
     /**
      * @notice Gets LP shares for a user in a specific tick
      * @param user User address
@@ -320,14 +334,7 @@ contract OrbitalPool {
     function _getTotalReserves() public view returns (uint144[] memory) {
         return totalReserves;
     }
-    function setSquareRootN() external  {
-        (bool ok, bytes memory ret) = address(MATH_HELPER).call(
-            abi.encodeWithSignature("sqrtQ96X48(uint144)", uint144(TOKENS_COUNT))
-        );
-        if (!ok || ret.length == 0) revert NumericalError();
-        uint144 rootn = abi.decode(ret, (uint144));
-        ROOT_N = rootn;
-    }
+
     /**
      * @notice Adds liquidity to a tick
      * @param amounts Array of token amounts to add (all must be > 0)
@@ -377,6 +384,12 @@ contract OrbitalPool {
                 newTick.reserves.push(reservesForRadiusCalc[i]);
             }
             newTick.status = tickStatus;
+            newTick.sumOfReserves = calculateSumofReserves(
+                reservesForRadiusCalc
+            );
+            newTick.sumOfSquareOfReserves = calculateSumOfSquareOfReserves(
+                reservesForRadiusCalc
+            );
             allP.push(p);
         } else {
             Tick storage tick = activeTicks[p];
@@ -390,6 +403,10 @@ contract OrbitalPool {
                 (uint256(newRadius) * uint256(newRadius)) >> 48
             );
             tick.status = tickStatus;
+            tick.sumOfReserves = calculateSumofReserves(reservesForRadiusCalc);
+            tick.sumOfSquareOfReserves = calculateSumOfSquareOfReserves(
+                reservesForRadiusCalc
+            );
         }
 
         for (uint256 i = 0; i < TOKENS_COUNT; i++) {
@@ -461,6 +478,10 @@ contract OrbitalPool {
         tick.liquidity = uint144(
             (uint256(newRadius) * uint256(newRadius)) >> 48
         );
+        tick.sumOfReserves = calculateSumofReserves(newReserves);
+        tick.sumOfSquareOfReserves = calculateSumOfSquareOfReserves(
+            newReserves
+        );
         tick.lpShares[msg.sender] -= lpSharesToRemove;
         tick.totalLpShares -= lpSharesToRemove;
 
@@ -485,13 +506,33 @@ contract OrbitalPool {
         emit LiquidityRemoved(shiftedAmounts, msg.sender, p >> 48);
     }
 
+    function calculateSumofReserves(
+        uint144[] memory reserves
+    ) internal pure returns (uint144 sum) {
+        sum = 0;
+        for (uint256 i = 0; i < reserves.length; i++) {
+            sum = sum + reserves[i];
+        }
+    }
+
+    function calculateSumOfSquareOfReserves(
+        uint144[] memory reserves
+    ) internal pure returns (uint144 sum) {
+        sum = 0;
+        for (uint256 i = 0; i < reserves.length; i++) {
+            sum =
+                sum +
+                uint144((uint256(reserves[i]) * uint256(reserves[i])) >> 48);
+        }
+    }
+
     function checkInvariants(
         uint144 k,
         uint144 r,
         uint144[] memory amounts
     ) internal view returns (TickStatus) {
         uint256 sumOfDifferenceOfReserves = 0;
-        uint256 sum = 0; 
+        uint256 sum = 0;
         for (uint256 i = 0; i < TOKENS_COUNT; i++) {
             sum += uint256(amounts[i]);
             uint256 difference = uint256(r) - uint256(amounts[i]);
@@ -527,11 +568,10 @@ contract OrbitalPool {
         }
     }
 
-      function swap(
+    function swap(
         uint144 amountIn,
         uint144 tokenIn,
-        uint144 tokenOut,
-        uint144 minAmountOut
+        uint144 tokenOut
     ) external {
         if (tokenIn == tokenOut) {
             revert SameToken();
@@ -546,7 +586,10 @@ contract OrbitalPool {
         uint144 amountRemaining = amountIn;
 
         uint144 totalAmountOut = 0;
-        (ConsolidatedTickData memory interiorTickData,) = _getConsolidatedTickData();
+        (
+            ConsolidatedTickData memory interiorTickData,
+
+        ) = _getConsolidatedTickData();
         uint144 estimatedAmountOut = _calculateSwapOutput(
             interiorTickData.totalReserves,
             tokenIn,
@@ -656,7 +699,6 @@ contract OrbitalPool {
             amountIn - amountRemaining
         );
     }
-
 
     function _updateReserves(
         uint144 tokenIn,
@@ -800,6 +842,7 @@ contract OrbitalPool {
             kIntMin = 0;
         }
     }
+
     function _calculateSwapOutputInputParameter(
         uint144[] memory reserves,
         uint144 tokenIn,
@@ -811,10 +854,9 @@ contract OrbitalPool {
             ConsolidatedTickData memory boundaryData
         ) = _getConsolidatedTickData();
 
-        uint144 sumInteriorReserves = 0;
-        for (uint256 i = 0; i < TOKENS_COUNT; i++) {
-            sumInteriorReserves += interiorData.totalReserves[i];
-        }
+        uint144 sumInteriorReserves = calculateSumofReserves(
+            interiorData.totalReserves
+        );
 
         uint144 amount = _callSolveTorusInvariant(
             sumInteriorReserves,
@@ -830,6 +872,7 @@ contract OrbitalPool {
         if (amount >= reserves[tokenOut]) revert InsufficientLiquidity();
         return amount;
     }
+
     function _calculateSwapOutput(
         uint144[] memory reserves,
         uint144 tokenIn,
@@ -841,10 +884,9 @@ contract OrbitalPool {
             ConsolidatedTickData memory boundaryData
         ) = _getConsolidatedTickData();
 
-        uint144 sumInteriorReserves = 0;
-        for (uint256 i = 0; i < TOKENS_COUNT; i++) {
-            sumInteriorReserves += interiorData.totalReserves[i];
-        }
+        uint144 sumInteriorReserves = calculateSumofReserves(
+            interiorData.totalReserves
+        );
 
         uint144 amount = _callSolveTorusInvariant(
             sumInteriorReserves,

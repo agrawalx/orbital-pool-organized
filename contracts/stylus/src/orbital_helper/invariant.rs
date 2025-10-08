@@ -59,7 +59,6 @@ pub fn calculate_invariant_simple(a: i128, b: U144, r_int: U144) -> i128 {
     sum_squares - u144_to_i128(r_int_squared)
 }
 
-
 /// Calculate the derivative of the invariant with respect to x_j
 /// This matches the Python implementation exactly
 pub fn invariant_derivative(
@@ -275,8 +274,6 @@ pub fn solveQuadraticInvariant(
         delta_linear
     }
 }
-
-
 
 pub fn solve_amount_out(
     sum_reserves: U144,

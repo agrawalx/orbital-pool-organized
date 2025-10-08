@@ -34,7 +34,6 @@ pub fn mul_Q96X48(a: U144, b: U144) -> U144 {
     U144::from_limbs([low, mid, high])
 }
 
-
 pub fn div_Q96X48(a: U144, b: U144) -> U144 {
     // (a << 48) / b
     assert!(b != U144::ZERO, "Division by zero");
@@ -76,7 +75,6 @@ pub fn div_Q96X48_signed(a: i128, b: i128) -> i128 {
     if sign_neg { -out_abs } else { out_abs }
 }
 
-
 /// Helper function to convert U144 to i128 for signed operations
 pub fn u144_to_i128(value: U144) -> i128 {
     // Extract the lower 128 bits and interpret as signed
@@ -93,7 +91,6 @@ pub fn i128_to_u144(value: i128) -> U144 {
     }
     U144::from(value as u128)
 }
-
 
 // Square root function for Q96X48 format using Newton's method
 pub fn sqrt_Q96X48(y: U144) -> U144 {
