@@ -81,7 +81,8 @@ Each tick is defined by:
 ```bash
 # Clone the repository
 git clone https://github.com/agrawalx/orbital-pool-organized.git
-cd orbital-pool-organized/solidity
+cd orbital-pool-organized
+cd solidity 
 
 # Install dependencies
 forge install
