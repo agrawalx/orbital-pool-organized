@@ -22,6 +22,8 @@ contract OrbitalFactory {
         address creator
     );
 
+    error InvalidAddress();
+
     /**
      * @notice Information about a deployed pool
      */
@@ -34,10 +36,9 @@ contract OrbitalFactory {
      * @notice Initializes the factory
      */
     constructor(address mathHelperAddress) {
-        require(
-            mathHelperAddress != address(0),
-            "Invalid math helper address"
-        );
+        if (mathHelperAddress == address(0)) {
+            revert InvalidAddress();
+        }
         MATH_HELPER_ADDRESS = mathHelperAddress;
     }
 
@@ -59,7 +60,6 @@ contract OrbitalFactory {
 
         require(pool != address(0), "Pool creation failed");
 
-        // Store pool info
         address[] memory tokenAddresses = new address[](tokens.length);
         for (uint256 i = 0; i < tokens.length; i++) {
             tokenAddresses[i] = address(tokens[i]);

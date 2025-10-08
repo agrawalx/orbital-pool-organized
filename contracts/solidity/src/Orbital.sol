@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-interface IOrbitalMATH_HELPER {
+interface IOrbitalMathHelper {
     function sqrtQ96X48(uint144 y) external pure returns (uint144);
 
     function getTickParameters(
@@ -40,7 +40,7 @@ interface IOrbitalMATH_HELPER {
 
 /**
  * @title OrbitalPool
- * @notice A 5-token AMM implementing the Orbital mathematical model
+ * @notice A n-token AMM implementing the Orbital mathematical model
  * @dev Uses a torus-based invariant for price discovery and liquidity management. It uses the notation Q96.48 to represent decimals.
  * @dev Every numerical value is marked in this format unless marked otherwise.
  * @author Orbital Protocol
@@ -50,7 +50,7 @@ contract OrbitalPool {
 
     uint256 public immutable TOKENS_COUNT; // This is not in Q96.48 format
     uint144 public ROOT_N ;
-    IOrbitalMATH_HELPER public immutable MATH_HELPER;
+    IOrbitalMathHelper public immutable MATH_HELPER;
     IERC20[] public tokens;
     uint144[] public totalReserves;
     mapping(uint144 p => Tick) public activeTicks;
@@ -153,7 +153,7 @@ contract OrbitalPool {
      */
     constructor(IERC20[] memory _tokens, address mathHelperAddress) {
         require(_tokens.length > 0, "At least one token required");
-        MATH_HELPER = IOrbitalMATH_HELPER(mathHelperAddress);
+        MATH_HELPER = IOrbitalMathHelper(mathHelperAddress);
         TOKENS_COUNT = _tokens.length;
         tokens = _tokens;
         totalReserves = new uint144[](_tokens.length);
@@ -530,8 +530,8 @@ contract OrbitalPool {
       function swap(
         uint144 amountIn,
         uint144 tokenIn,
-        uint144 tokenOut,
-        uint144 minAmountOut
+        uint144 tokenOut
+        // uint144 minAmountOut
     ) external {
         if (tokenIn == tokenOut) {
             revert SameToken();
