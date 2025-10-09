@@ -1,4 +1,4 @@
-from math import sqrt
+import math
 
 Q = 48 
 SCALE = 1 << Q  # 2^48
@@ -68,14 +68,14 @@ def div_Q96X48_signed(a: int, b: int) -> int:
     # Don't apply U144 mask to preserve sign for negative results
     return result
 def sqrt_preSclae(value: int) -> float:
-    return sqrt(value)
+    return math.sqrt(value)
 def sqrt_Q96X48(value: int) -> int:
     #this takes a Q96.48 number and returns a Q96.48 number
     if value < 0:
         raise ValueError("Cannot compute square root of a negative number")
     # Scale the value to maintain precision
     scaled_value = value << Q
-    root = int(sqrt(scaled_value))
+    root = int(math.sqrt(scaled_value))
     return to_U144(root)
 def sqrt_q96x48(y: int) -> int:
     """
@@ -654,53 +654,20 @@ if __name__ == "__main__":
     print(f"Total input: {total_in}")
     print(f"Total output: {total_out}")
 
-    # # Test Case 4: solve_amount_out with various scenarios
-    # print("\n=== Test Case 4: Amount Out Calculation ===")
+    # Test Case 4: Edge Cases
+    print("\n=== Test Case 5: Edge Cases ===")
     
-    # # Scenario 1: Small trade
-    # small_reserves = [1000*SCALE] * 5
-    # sum_reserves = sum(small_reserves)
-    # sum_squares = sum(mul_Q96X48(x, x) for x in small_reserves) >> Q
+    # Edge case 1: Very imbalanced reserves
+    print("\nTesting very imbalanced reserves")
+    edge_reserves = [10000*SCALE, 100*SCALE, 100*SCALE, 100*SCALE, 100*SCALE]
+    r_edge = calculate_radius(edge_reserves)
+    k_edge = calculate_k(convert_to_Q96X48(10), n, r_edge)  # test with extreme price ratio
     
-    # print("\nTesting small trade (5 tokens)")
-    # small_amount_out = solve_amount_out(
-    #     sum_reserves,
-    #     sum_squares,
-    #     n,
-    #     0,  # k_bound
-    #     r,
-    #     0,  # s_bound
-    #     995*SCALE
-    # )
-    # print(f"Amount out for small trade: {convert_from_Q96X48(small_amount_out)}")
-
-    # # Scenario 2: Large trade
-    # print("\nTesting large trade (100 tokens)")
-    # large_amount_out = solve_amount_out(
-    #     sum_reserves,
-    #     sum_squares,
-    #     n,
-    #     0,
-    #     r,
-    #     0,
-    #     900*SCALE
-    # )
-    # print(f"Amount out for large trade: {convert_from_Q96X48(large_amount_out)}")
-
-    # # Test Case 5: Edge Cases
-    # print("\n=== Test Case 5: Edge Cases ===")
+    # Edge case 2: Trade with zero input
+    print("\nTesting trade with zero input")
+    zero_segments = segment_trade(initial_reserves, boundaries, n, 0, 1, 0, r)
     
-    # # Edge case 1: Very imbalanced reserves
-    # print("\nTesting very imbalanced reserves")
-    # edge_reserves = [10000*SCALE, 100*SCALE, 100*SCALE, 100*SCALE, 100*SCALE]
-    # r_edge = calculate_radius(edge_reserves)
-    # k_edge = calculate_k(convert_to_Q96X48(10), n, r_edge)  # test with extreme price ratio
-    
-    # # Edge case 2: Trade with zero input
-    # print("\nTesting trade with zero input")
-    # zero_segments = segment_trade(initial_reserves, boundaries, n, 0, 1, 0, r)
-    
-    # print("\nTest suite completed!")
+    print("\nTest suite completed!")
 
 
 
