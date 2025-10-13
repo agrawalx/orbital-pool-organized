@@ -1,5 +1,6 @@
 use stylus_sdk::alloy_primitives::U256;
 use alloy_primitives::aliases::U144;
+use crate::orbital_helper::errors::OrbitalHelperError;
 
 // everything is in Q98X48 fixed point format unless otherwise specified
 // Q96X48 format means there are 96 bits for the integer part and 48 bits for the fractional part.
@@ -7,6 +8,12 @@ use alloy_primitives::aliases::U144;
 
 // implement arithemtic operations for Q96X48 format and then use that for all further calculations.
 pub fn convert_to_Q96X48(value: U144) -> U144 {
+    // Check for overflow before shifting
+    // U144 has 144 bits, so we can safely shift by 48 bits if the upper 48 bits are zero
+    let max_shiftable = U144::MAX >> 48;
+    if value > max_shiftable {
+        OrbitalHelperError::Overflow.revert();
+    }
     value << 48
 }
 pub fn convert_from_Q96X48(value: U144) -> U144 {
@@ -24,7 +31,9 @@ pub fn mul_Q96X48(a: U144, b: U144) -> U144 {
     let shifted: U256 = product >> 48;
     // Check if the result fits in U144 (2^144 - 1)
     let max_u144 = (U256::from(1u128) << 144) - U256::from(1u128);
-    assert!(shifted <= max_u144, "Overflow in Q96X48 multiplication");
+    if shifted > max_u144 {
+        OrbitalHelperError::Overflow.revert();
+    }
     // Convert U256 to U144 by taking the lower 144 bits
     // U144 is represented internally as [u64; 3], so we take the first 2.25 u64s
     let limbs = shifted.as_limbs();
@@ -36,12 +45,16 @@ pub fn mul_Q96X48(a: U144, b: U144) -> U144 {
 
 pub fn div_Q96X48(a: U144, b: U144) -> U144 {
     // (a << 48) / b
-    assert!(b != U144::ZERO, "Division by zero");
+    if b == U144::ZERO {
+        OrbitalHelperError::DivisionByZero.revert();
+    }
     let dividend: U256 = U256::from(a) << 48;
     let result: U256 = dividend / U256::from(b);
     // Check if the result fits in U144 (2^144 - 1)
     let max_u144 = (U256::from(1u128) << 144) - U256::from(1u128);
-    assert!(result <= max_u144, "Overflow in Q96X48 division");
+    if result > max_u144 {
+        OrbitalHelperError::Overflow.revert();
+    }
     // Convert U256 to U144 by taking the lower 144 bits
     // U144 is represented internally as [u64; 3], so we take the first 2.25 u64s
     let limbs = result.as_limbs();
@@ -122,3 +135,4 @@ pub fn sqrt_Q96X48(y: U144) -> U144 {
     let high = limbs[2] & 0xFFFF; // only lower 16 bits for U144
     U144::from_limbs([low, mid, high])
 }
+
